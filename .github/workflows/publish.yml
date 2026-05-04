@@ -86,5 +86,5 @@ jobs:
           context: .
           file: ${{ steps.config.outputs.dockerfile }}
           push: true
-          tags: ghcr.io/${{ github.repository_owner }}/${{ matrix.name }}:latest
+          tags: ghcr.io/${{ github.repository_owner }}/${{ matrix.name }}-mcp:latest
           build-args: ${{ steps.config.outputs.build_args }}
