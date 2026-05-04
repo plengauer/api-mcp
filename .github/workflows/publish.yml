@@ -75,13 +75,13 @@ jobs:
           name: image-${{ matrix.name }}
           path: /tmp
       - run: docker load -i /tmp/image.tar
-      - run: docker run -d --name mcp-test -p 8000:8000 -e API_MCP_AUTHORIZATION="Bearer ${{ secrets.GITHUB_TOKEN }}" mcp-${{ matrix.name }}:latest
+      - run: docker run -d --name mcp-test -p 8080:8080 -e API_MCP_AUTHORIZATION="Bearer ${{ secrets.GITHUB_TOKEN }}" mcp-${{ matrix.name }}:latest
       - run: |
           python3 -c "
           import socket, time, sys
           for _ in range(60):
               try:
-                  socket.create_connection(('localhost', 8000), 1).close()
+                  socket.create_connection(('localhost', 8080), 1).close()
                   sys.exit(0)
               except OSError:
                   time.sleep(2)
@@ -92,7 +92,7 @@ jobs:
           python-version: "3.12"
       - run: pip install -r tests/requirements.txt
       - env:
-          MCP_URL: http://localhost:443/mcp
+          MCP_URL: http://localhost:8080/mcp
         run: pytest tests/test_mcp.py -v
       - if: always()
         run: docker logs mcp-test && docker stop mcp-test
