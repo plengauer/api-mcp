@@ -1,0 +1,19 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+
+RUN pip install --no-cache-dir fastmcp httpx uvicorn
+
+COPY api-rest-mcp.py .
+
+ARG API_MCP_OPENAPI_SPEC_URL
+ARG API_MCP_BASE_URL
+ARG API_MCP_SERVER_NAME
+
+ENV API_MCP_OPENAPI_SPEC_URL=${API_MCP_OPENAPI_SPEC_URL}
+ENV API_MCP_BASE_URL=${API_MCP_BASE_URL}
+ENV API_MCP_SERVER_NAME=${API_MCP_SERVER_NAME}
+
+EXPOSE 8000
+
+CMD ["python", "api-rest-mcp.py"]

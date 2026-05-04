@@ -1,0 +1,6 @@
+fastmcp
+httpx
+graphql-mcp
+uvicorn
+pytest
+pytest-asyncio

@@ -1,0 +1,115 @@
+name: Build and Publish MCP Containers
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-rest:
+    name: Test REST MCP Server
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install test dependencies
+        run: pip install -r tests/requirements.txt
+
+      - name: Run REST MCP tests
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: pytest tests/test_rest_mcp.py -v
+
+  test-graphql:
+    name: Test GraphQL MCP Server
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install test dependencies
+        run: pip install -r tests/requirements.txt
+
+      - name: Run GraphQL MCP tests
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: pytest tests/test_graphql_mcp.py -v
+
+  setup-matrix:
+    name: Setup Publish Matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate matrix from apis.yml
+        id: matrix
+        run: |
+          pip install --quiet pyyaml==6.0.2
+          python3 -c "
+          import yaml, json
+          with open('apis.yml') as f:
+              data = yaml.safe_load(f)
+          print('matrix=' + json.dumps({'include': data['apis']}))
+          " >> $GITHUB_OUTPUT
+
+  publish:
+    name: Build and Publish ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    needs: [test-rest, test-graphql, setup-matrix]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    strategy:
+      matrix: ${{ fromJson(needs.setup-matrix.outputs.matrix) }}
+    permissions:
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure build
+        id: config
+        run: |
+          if [ "${{ matrix.type }}" = "graphql" ]; then
+            echo "dockerfile=Dockerfile.graphql" >> $GITHUB_OUTPUT
+            {
+              echo 'build_args<<EOF'
+              echo 'API_MCP_SERVER_NAME=${{ matrix.server_name }}'
+              echo 'API_MCP_BASE_URL=${{ matrix.base_url }}'
+              echo 'EOF'
+            } >> $GITHUB_OUTPUT
+          else
+            echo "dockerfile=Dockerfile.rest" >> $GITHUB_OUTPUT
+            {
+              echo 'build_args<<EOF'
+              echo 'API_MCP_SERVER_NAME=${{ matrix.server_name }}'
+              echo 'API_MCP_BASE_URL=${{ matrix.base_url }}'
+              echo 'API_MCP_OPENAPI_SPEC_URL=${{ matrix.openapi_spec_url }}'
+              echo 'EOF'
+            } >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ${{ steps.config.outputs.dockerfile }}
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/${{ matrix.name }}:latest
+          build-args: ${{ steps.config.outputs.build_args }}
