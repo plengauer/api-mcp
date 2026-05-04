@@ -4,6 +4,12 @@ from fastmcp import FastMCP
 
 
 def fix_spec(obj):
+    """Remove empty enum arrays from an OpenAPI spec object.
+
+    Some OpenAPI specs contain ``"enum": []`` entries that cause validation
+    errors in FastMCP. This function recursively strips those entries so the
+    spec can be loaded cleanly.
+    """
     if isinstance(obj, dict):
         return {
             k: fix_spec(v)
@@ -16,7 +22,11 @@ def fix_spec(obj):
 
 
 mcp = FastMCP.from_openapi(
-    openapi_spec=fix_spec(httpx.get(os.environ["API_MCP_OPENAPI_SPEC_URL"], follow_redirects=True).raise_for_status().json()),
+    openapi_spec=fix_spec(
+        httpx.get(os.environ["API_MCP_OPENAPI_SPEC_URL"], follow_redirects=True)
+        .raise_for_status()
+        .json()
+    ),
     client=httpx.AsyncClient(
         base_url=os.environ["API_MCP_BASE_URL"],
         headers={
