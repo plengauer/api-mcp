@@ -119,9 +119,10 @@ class AuthFromQueryParam:
                 scope["headers"] = headers
         await self.app(scope, receive, send)
 
+_token = os.environ.get("API_MCP_TOKEN", "")
 mcp = GraphQLMCP.from_remote_url(
     url = os.environ["API_MCP_BASE_URL"],
-    headers = {},
+    headers = {"Authorization": f"Bearer {_token}"} if _token else {},
     forward_bearer_token = True,
     name = os.environ["API_MCP_SERVER_NAME"]
 )

@@ -75,7 +75,7 @@ jobs:
           name: image-${{ matrix.name }}
           path: /tmp
       - run: docker load -i /tmp/image.tar
-      - run: docker run -d --name mcp-test -p 8080:8080 mcp-${{ matrix.name }}:latest
+      - run: docker run -d --name mcp-test -p 8080:8080 -e API_MCP_TOKEN=${{ secrets.GITHUB_TOKEN }} mcp-${{ matrix.name }}:latest
       - run: |
           python3 -c "
           import socket, time, sys
