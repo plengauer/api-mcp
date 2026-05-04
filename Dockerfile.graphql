@@ -14,6 +14,6 @@ ARG API_MCP_SERVER_NAME
 ENV API_MCP_BASE_URL=${API_MCP_BASE_URL}
 ENV API_MCP_SERVER_NAME=${API_MCP_SERVER_NAME}
 
-EXPOSE 443
+EXPOSE 8080
 
 CMD ["opentelemetry-instrument", "python", "api-graphql-mcp.py"]
