@@ -2,8 +2,8 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-RUN pip install --no-cache-dir graphql-mcp uvicorn \
-    opentelemetry-distro opentelemetry-exporter-otlp \
+COPY requirements.graphql.txt .
+RUN pip install --no-cache-dir -r requirements.graphql.txt \
     && opentelemetry-bootstrap -a install
 
 COPY api-graphql-mcp.py .

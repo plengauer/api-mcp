@@ -1,6 +1,4 @@
-fastmcp
-httpx
-graphql-mcp
-uvicorn
-pytest
-pytest-asyncio
+-r ../requirements.rest.txt
+-r ../requirements.graphql.txt
+pytest==9.0.3
+pytest-asyncio==1.3.0
