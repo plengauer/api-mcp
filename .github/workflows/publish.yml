@@ -1,0 +1,121 @@
+name: Build and Publish MCP Containers
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  setup-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: matrix
+        run: |
+          pip install --quiet pyyaml==6.0.2
+          python3 -c "
+          import yaml, json
+          with open('apis.yml') as f:
+              data = yaml.safe_load(f)
+          print('matrix=' + json.dumps({'include': data['apis']}))
+          " >> $GITHUB_OUTPUT
+
+  build:
+    runs-on: ubuntu-latest
+    needs: [setup-matrix]
+    strategy:
+      matrix: ${{ fromJson(needs.setup-matrix.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: config
+        run: |
+          if [ "${{ matrix.type }}" = "graphql" ]; then
+            echo "dockerfile=Dockerfile.graphql" >> $GITHUB_OUTPUT
+            {
+              echo 'build_args<<EOF'
+              echo 'API_MCP_SERVER_NAME=${{ matrix.server_name }}'
+              echo 'API_MCP_BASE_URL=${{ matrix.base_url }}'
+              echo 'EOF'
+            } >> $GITHUB_OUTPUT
+          else
+            echo "dockerfile=Dockerfile.rest" >> $GITHUB_OUTPUT
+            {
+              echo 'build_args<<EOF'
+              echo 'API_MCP_SERVER_NAME=${{ matrix.server_name }}'
+              echo 'API_MCP_BASE_URL=${{ matrix.base_url }}'
+              echo 'API_MCP_OPENAPI_SPEC_URL=${{ matrix.openapi_spec_url }}'
+              echo 'EOF'
+            } >> $GITHUB_OUTPUT
+          fi
+      - uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ${{ steps.config.outputs.dockerfile }}
+          load: true
+          push: false
+          tags: mcp-${{ matrix.name }}:latest
+          build-args: ${{ steps.config.outputs.build_args }}
+      - run: docker save mcp-${{ matrix.name }}:latest -o /tmp/image.tar
+      - uses: actions/upload-artifact@v4
+        with:
+          name: image-${{ matrix.name }}
+          path: /tmp/image.tar
+
+  test:
+    runs-on: ubuntu-latest
+    needs: [setup-matrix, build]
+    strategy:
+      matrix: ${{ fromJson(needs.setup-matrix.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: image-${{ matrix.name }}
+          path: /tmp
+      - run: docker load -i /tmp/image.tar
+      - run: docker run -d --name mcp-test -p 8080:8080 mcp-${{ matrix.name }}:latest
+      - run: |
+          python3 -c "
+          import socket, time, sys
+          for _ in range(60):
+              try:
+                  socket.create_connection(('localhost', 8080), 1).close()
+                  sys.exit(0)
+              except OSError:
+                  time.sleep(2)
+          sys.exit(1)
+          "
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r tests/requirements.txt
+      - env:
+          MCP_URL: http://localhost:8080/mcp?authorization=Bearer+${{ secrets.GITHUB_TOKEN }}
+        run: pytest tests/test_mcp.py -v
+      - if: always()
+        run: docker logs mcp-test && docker stop mcp-test
+
+  publish:
+    runs-on: ubuntu-latest
+    needs: [setup-matrix, test]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    strategy:
+      matrix: ${{ fromJson(needs.setup-matrix.outputs.matrix) }}
+    permissions:
+      packages: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: image-${{ matrix.name }}
+          path: /tmp
+      - run: docker load -i /tmp/image.tar
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - run: |
+          docker tag mcp-${{ matrix.name }}:latest ghcr.io/${{ github.repository_owner }}/mcp-${{ matrix.name }}:latest
+          docker push ghcr.io/${{ github.repository_owner }}/mcp-${{ matrix.name }}:latest
