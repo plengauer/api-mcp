@@ -95,7 +95,7 @@ jobs:
           MCP_URL: http://localhost:8000/mcp
         run: pytest tests/test_mcp.py -v
       - if: always()
-        run: docker log mcp-test && docker stop mcp-test
+        run: docker logs mcp-test && docker stop mcp-test
 
   publish:
     runs-on: ubuntu-latest
