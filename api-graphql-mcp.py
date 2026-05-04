@@ -107,6 +107,8 @@ from graphql_mcp.server import GraphQLMCP
 from starlette.middleware import Middleware
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+_MCP_MAX_TOOL_NAME_LENGTH = 64
+
 class AuthFromQueryParam:
     def __init__(self, app: ASGIApp):
         self.app = app
@@ -168,7 +170,7 @@ class _LazyMCPApp:
         )
         # Drop tools whose names exceed 64 characters (MCP protocol limit)
         for tool in await mcp.list_tools():
-            if len(tool.name) > 64:
+            if len(tool.name) > _MCP_MAX_TOOL_NAME_LENGTH:
                 mcp.local_provider.remove_tool(tool.name)
         app = mcp.http_app(middleware=[Middleware(AuthFromQueryParam)])
 
