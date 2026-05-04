@@ -10,4 +10,4 @@ mcp = GraphQLMCP.from_remote_url(
 )
 
 if __name__ == "__main__":
-    mcp.run(transport="http", host="0.0.0.0", port=8000)
+    mcp.run(transport = "https", host = "0.0.0.0", port = 443)
