@@ -92,7 +92,7 @@ jobs:
           python-version: "3.12"
       - run: pip install -r tests/requirements.txt
       - env:
-          MCP_URL: http://localhost:8000/mcp
+          MCP_URL: http://localhost:443/mcp
         run: pytest tests/test_mcp.py -v
       - if: always()
         run: docker logs mcp-test && docker stop mcp-test
