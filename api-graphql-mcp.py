@@ -1,3 +1,4 @@
+import asyncio
 import os
 import inspect
 
@@ -119,14 +120,122 @@ class AuthFromQueryParam:
                 scope["headers"] = headers
         await self.app(scope, receive, send)
 
-mcp = GraphQLMCP.from_remote_url(
-    url = os.environ["API_MCP_BASE_URL"],
-    headers = {},
-    forward_bearer_token = True,
-    name = os.environ["API_MCP_SERVER_NAME"]
-)
+class _LazyMCPApp:
+    """ASGI wrapper that lazily initializes the GraphQLMCP server on the first request.
+
+    The schema is fetched using the bearer token from the first incoming request,
+    so no static token is needed at container startup.
+    """
+
+    def __init__(self):
+        self._app = None
+        self._lock = asyncio.Lock()
+        self._shutdown_trigger = None
+        self._lifespan_done = None
+        self._lifespan_task = None
+
+    def _extract_token(self, scope) -> str:
+        """Extract bearer token from Authorization header or query string."""
+        for name, value in scope.get("headers", []):
+            if name.lower() == b"authorization":
+                auth = value.decode()
+                if auth.lower().startswith("bearer "):
+                    return auth[7:].strip()
+                return auth.strip()
+        qs = parse_qs(scope.get("query_string", b"").decode())
+        token = qs.get("authorization", [""])[0] if "authorization" in qs else ""
+        if token.lower().startswith("bearer "):
+            return token[7:].strip()
+        return token.strip()
+
+    async def _init_app(self, scope):
+        """Fetch schema using the request token and start the inner app's lifespan."""
+        # Extract token here (in the event loop) before handing off to an executor
+        # thread, so there is no shared-state access across thread boundaries.
+        token = self._extract_token(scope)
+
+        # Run the blocking schema-fetch + tool-registration in a thread so the
+        # event loop stays responsive while waiting for the remote introspection.
+        loop = asyncio.get_running_loop()
+        mcp = await loop.run_in_executor(
+            None,
+            lambda: GraphQLMCP.from_remote_url(
+                url=os.environ["API_MCP_BASE_URL"],
+                headers={"Authorization": f"Bearer {token}"} if token else {},
+                forward_bearer_token=True,
+                name=os.environ["API_MCP_SERVER_NAME"],
+            ),
+        )
+        app = mcp.http_app(middleware=[Middleware(AuthFromQueryParam)])
+
+        # Drive the inner app's lifespan as a background task so its session
+        # manager is up before we forward any requests to it.
+        startup_complete = asyncio.Event()
+        lifespan_receive_queue: asyncio.Queue = asyncio.Queue()
+        await lifespan_receive_queue.put({"type": "lifespan.startup"})
+        lifespan_done = asyncio.Event()
+
+        async def lifespan_receive():
+            return await lifespan_receive_queue.get()
+
+        async def lifespan_send(message):
+            if message["type"] == "lifespan.startup.complete":
+                startup_complete.set()
+            elif message["type"] == "lifespan.shutdown.complete":
+                lifespan_done.set()
+
+        async def run_lifespan():
+            try:
+                await app({"type": "lifespan", "asgi": {"version": "3.0"}}, lifespan_receive, lifespan_send)
+            finally:
+                lifespan_done.set()
+
+        lifespan_task = asyncio.create_task(run_lifespan())
+        try:
+            await startup_complete.wait()
+        except Exception:
+            lifespan_task.cancel()
+            try:
+                await lifespan_task
+            except asyncio.CancelledError:
+                pass
+            raise
+
+        self._lifespan_task = lifespan_task
+        self._shutdown_trigger = lifespan_receive_queue
+        self._lifespan_done = lifespan_done
+        self._app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "lifespan":
+            # Acknowledge outer lifespan startup immediately — the real MCP
+            # server will be started lazily on the first HTTP request.
+            msg = await receive()
+            if msg["type"] != "lifespan.startup":
+                raise ValueError(f"Expected lifespan.startup, got {msg['type']}")
+            await send({"type": "lifespan.startup.complete"})
+
+            # Wait for the outer shutdown signal.
+            msg = await receive()
+            if msg["type"] != "lifespan.shutdown":
+                raise ValueError(f"Expected lifespan.shutdown, got {msg['type']}")
+
+            # Propagate shutdown to the inner app if it was ever initialised.
+            if self._shutdown_trigger is not None:
+                await self._shutdown_trigger.put({"type": "lifespan.shutdown"})
+                await self._lifespan_done.wait()
+
+            await send({"type": "lifespan.shutdown.complete"})
+            return
+
+        if self._app is None:
+            async with self._lock:
+                if self._app is None:
+                    await self._init_app(scope)
+
+        await self._app(scope, receive, send)
+
 
 if __name__ == "__main__":
-    app = mcp.http_app(middleware=[Middleware(AuthFromQueryParam)])
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8080)
+    uvicorn.run(_LazyMCPApp(), host="0.0.0.0", port=8080)
