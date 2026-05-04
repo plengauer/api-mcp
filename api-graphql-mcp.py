@@ -166,6 +166,10 @@ class _LazyMCPApp:
                 name=os.environ["API_MCP_SERVER_NAME"],
             ),
         )
+        # Drop tools whose names exceed 64 characters (MCP protocol limit)
+        for tool in await mcp.list_tools():
+            if len(tool.name) > 64:
+                mcp.local_provider.remove_tool(tool.name)
         app = mcp.http_app(middleware=[Middleware(AuthFromQueryParam)])
 
         # Drive the inner app's lifespan as a background task so its session
