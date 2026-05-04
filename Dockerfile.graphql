@@ -2,7 +2,9 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-RUN pip install --no-cache-dir graphql-mcp uvicorn
+RUN pip install --no-cache-dir graphql-mcp uvicorn \
+    opentelemetry-distro opentelemetry-exporter-otlp \
+    && opentelemetry-bootstrap -a install
 
 COPY api-graphql-mcp.py .
 
@@ -14,4 +16,4 @@ ENV API_MCP_SERVER_NAME=${API_MCP_SERVER_NAME}
 
 EXPOSE 8000
 
-CMD ["python", "api-graphql-mcp.py"]
+CMD ["opentelemetry-instrument", "python", "api-graphql-mcp.py"]
