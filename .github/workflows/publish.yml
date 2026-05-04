@@ -6,30 +6,6 @@ on:
   pull_request:
 
 jobs:
-  test-rest:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: pip install -r tests/requirements.txt
-      - env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: pytest tests/test_rest_mcp.py -v
-
-  test-graphql:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: pip install -r tests/requirements.txt
-      - env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: pytest tests/test_graphql_mcp.py -v
-
   setup-matrix:
     runs-on: ubuntu-latest
     outputs:
@@ -46,21 +22,13 @@ jobs:
           print('matrix=' + json.dumps({'include': data['apis']}))
           " >> $GITHUB_OUTPUT
 
-  publish:
+  build:
     runs-on: ubuntu-latest
-    needs: [test-rest, test-graphql, setup-matrix]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [setup-matrix]
     strategy:
       matrix: ${{ fromJson(needs.setup-matrix.outputs.matrix) }}
-    permissions:
-      packages: write
     steps:
       - uses: actions/checkout@v4
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
       - id: config
         run: |
           if [ "${{ matrix.type }}" = "graphql" ]; then
@@ -85,6 +53,69 @@ jobs:
         with:
           context: .
           file: ${{ steps.config.outputs.dockerfile }}
-          push: true
-          tags: ghcr.io/${{ github.repository_owner }}/${{ matrix.name }}-mcp:latest
+          load: true
+          push: false
+          tags: mcp-${{ matrix.name }}:latest
           build-args: ${{ steps.config.outputs.build_args }}
+      - run: docker save mcp-${{ matrix.name }}:latest -o /tmp/image.tar
+      - uses: actions/upload-artifact@v4
+        with:
+          name: image-${{ matrix.name }}
+          path: /tmp/image.tar
+
+  test:
+    runs-on: ubuntu-latest
+    needs: [setup-matrix, build]
+    strategy:
+      matrix: ${{ fromJson(needs.setup-matrix.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: image-${{ matrix.name }}
+          path: /tmp
+      - run: docker load -i /tmp/image.tar
+      - run: docker run -d --name mcp-test -p 8000:8000 -e API_MCP_AUTHORIZATION="Bearer ${{ secrets.GITHUB_TOKEN }}" mcp-${{ matrix.name }}:latest
+      - run: |
+          python3 -c "
+          import socket, time, sys
+          for _ in range(60):
+              try:
+                  socket.create_connection(('localhost', 8000), 1).close()
+                  sys.exit(0)
+              except OSError:
+                  time.sleep(2)
+          sys.exit(1)
+          "
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r tests/requirements.txt
+      - env:
+          MCP_URL: http://localhost:8000/mcp
+        run: pytest tests/test_mcp.py -v
+      - if: always()
+        run: docker stop mcp-test
+
+  publish:
+    runs-on: ubuntu-latest
+    needs: [setup-matrix, test]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    strategy:
+      matrix: ${{ fromJson(needs.setup-matrix.outputs.matrix) }}
+    permissions:
+      packages: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: image-${{ matrix.name }}
+          path: /tmp
+      - run: docker load -i /tmp/image.tar
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - run: |
+          docker tag mcp-${{ matrix.name }}:latest ghcr.io/${{ github.repository_owner }}/${{ matrix.name }}-mcp:latest
+          docker push ghcr.io/${{ github.repository_owner }}/${{ matrix.name }}-mcp:latest
