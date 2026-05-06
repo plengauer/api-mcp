@@ -1,0 +1,24 @@
+name: Renovate
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/renovate.yml
+
+concurrency:
+  group: renovate
+
+jobs:
+  renovate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: renovatebot/github-action@3633cede7d4d4598438e654eac4a695e46004420 # v46.1.7
+        env:
+          RENOVATE_REPOSITORIES: ${{ github.repository }}
+          RENOVATE_ONBOARDING_CONFIG_FILE_NAME: .github/renovate.json
+        with:
+          token: ${{ secrets.ACTIONS_GITHUB_TOKEN }}
