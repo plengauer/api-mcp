@@ -11,6 +11,12 @@ jobs:
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
     steps:
+      - uses: plengauer/opentelemetry-github/actions/instrument/job@215271fe54efbdffbece78b02493f7ecd73678f8
+        env:
+          OTEL_EXPORTER_OTLP_ENDPOINT: ${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}
+          OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}
+        with:
+          secrets_to_redact: ${{ github.token }}
       - uses: actions/checkout@v4
       - id: matrix
         run: |
@@ -21,13 +27,20 @@ jobs:
               data = yaml.safe_load(f)
           print('matrix=' + json.dumps({'include': data['apis']}))
           " >> $GITHUB_OUTPUT
-
+    permissions:
+      actions: read
   build:
     runs-on: ubuntu-latest
     needs: [setup-matrix]
     strategy:
       matrix: ${{ fromJson(needs.setup-matrix.outputs.matrix) }}
     steps:
+      - uses: plengauer/opentelemetry-github/actions/instrument/job@215271fe54efbdffbece78b02493f7ecd73678f8
+        env:
+          OTEL_EXPORTER_OTLP_ENDPOINT: ${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}
+          OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}
+        with:
+          secrets_to_redact: ${{ github.token }}
       - uses: actions/checkout@v4
       - id: config
         run: |
@@ -62,13 +75,22 @@ jobs:
         with:
           name: image-${{ matrix.name }}
           path: /tmp/image.tar
-
+    permissions:
+      actions: read
   test:
     runs-on: ubuntu-latest
     needs: [setup-matrix, build]
     strategy:
       matrix: ${{ fromJson(needs.setup-matrix.outputs.matrix) }}
     steps:
+      - uses: plengauer/opentelemetry-github/actions/instrument/job@215271fe54efbdffbece78b02493f7ecd73678f8
+        env:
+          OTEL_EXPORTER_OTLP_ENDPOINT: ${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}
+          OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}
+        with:
+          secrets_to_redact: |-
+            ${{ github.token }}
+            ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
@@ -96,7 +118,8 @@ jobs:
         run: pytest tests/test_mcp.py -v
       - if: always()
         run: docker logs mcp-test && docker stop mcp-test
-
+    permissions:
+      actions: read
   publish:
     runs-on: ubuntu-latest
     needs: [setup-matrix, test]
@@ -105,7 +128,16 @@ jobs:
       matrix: ${{ fromJson(needs.setup-matrix.outputs.matrix) }}
     permissions:
       packages: write
+      actions: read
     steps:
+      - uses: plengauer/opentelemetry-github/actions/instrument/job@215271fe54efbdffbece78b02493f7ecd73678f8
+        env:
+          OTEL_EXPORTER_OTLP_ENDPOINT: ${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}
+          OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}
+        with:
+          secrets_to_redact: |-
+            ${{ github.token }}
+            ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/download-artifact@v4
         with:
           name: image-${{ matrix.name }}
