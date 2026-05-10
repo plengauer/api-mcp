@@ -120,9 +120,53 @@ jobs:
         run: docker logs mcp-test && docker stop mcp-test
     permissions:
       actions: read
+  test-github:
+    runs-on: ubuntu-latest
+    needs: [build]
+    strategy:
+      matrix:
+        include:
+          - name: github-rest
+          - name: github-graphql
+    steps:
+      - uses: plengauer/opentelemetry-github/actions/instrument/job@215271fe54efbdffbece78b02493f7ecd73678f8
+        env:
+          OTEL_EXPORTER_OTLP_ENDPOINT: ${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}
+          OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}
+        with:
+          secrets_to_redact: ${{ github.token }}
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: image-${{ matrix.name }}
+          path: /tmp
+      - run: docker load -i /tmp/image.tar
+      - run: docker run -d --name mcp-test-github -p 8080:8080 mcp-${{ matrix.name }}:latest
+      - run: |
+          python3 -c "
+          import socket, time, sys
+          for _ in range(60):
+              try:
+                  socket.create_connection(('localhost', 8080), 1).close()
+                  sys.exit(0)
+              except OSError:
+                  time.sleep(2)
+          sys.exit(1)
+          "
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: "3.14"
+      - run: pip install -r tests/requirements.txt
+      - env:
+          MCP_URL: http://localhost:8080/mcp?authorization=Bearer+${{ github.token }}
+        run: pytest tests/test_github.py -v
+      - if: always()
+        run: docker logs mcp-test-github && docker stop mcp-test-github
+    permissions:
+      actions: read
   publish:
     runs-on: ubuntu-latest
-    needs: [setup-matrix, test]
+    needs: [setup-matrix, test, test-github]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     strategy:
       matrix: ${{ fromJson(needs.setup-matrix.outputs.matrix) }}
