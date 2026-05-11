@@ -35,17 +35,26 @@ async def _call_github_repository_listing_tool(client):
     tool_names = {tool.name for tool in tools}
 
     if "repos_list_for_authenticated_user" in tool_names:
-        return await client.call_tool(
+        result = await client.call_tool(
             "repos_list_for_authenticated_user",
             {"per_page": 5},
         )
+        if _extract_repository_list(result):
+            return result
 
-    graphql_tool_names = [
-        tool_name
-        for tool_name in tool_names
-        if "viewer" in tool_name and ("repo" in tool_name or "repositories" in tool_name)
-    ]
-    for tool_name in sorted(graphql_tool_names):
+    graphql_tools = []
+    for tool in tools:
+        text = " ".join(
+            [
+                tool.name.lower(),
+                (tool.title or "").lower(),
+                (tool.description or "").lower(),
+            ]
+        )
+        if "viewer" in text and ("repo" in text or "repositor" in text):
+            graphql_tools.append(tool.name)
+
+    for tool_name in sorted(set(graphql_tools)):
         for arguments in (
             {"first": 5},
             {"last": 5},
@@ -54,11 +63,13 @@ async def _call_github_repository_listing_tool(client):
             {},
         ):
             try:
-                return await client.call_tool(tool_name, arguments)
+                result = await client.call_tool(tool_name, arguments)
             except Exception:
                 continue
+            if _extract_repository_list(result):
+                return result
 
-    raise AssertionError("No GitHub repository-listing MCP tool was callable")
+    raise AssertionError("No GitHub repository-listing MCP tool returned repositories")
 
 
 @pytest.mark.asyncio

@@ -131,7 +131,7 @@ jobs:
       - run: |
           python3 -c "
           import socket, time, sys
-          for _ in range(60):
+          for _ in range(120):
               try:
                   socket.create_connection(('localhost', 8080), 1).close()
                   sys.exit(0)
