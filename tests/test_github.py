@@ -32,49 +32,47 @@ def _extract_repository_list(value):
 
 async def _call_github_repository_listing_tool(client):
     tools = await client.list_tools()
-    candidate_scores = {}
-    for tool in tools:
-        score = 0
-        text = " ".join(
-            [
-                tool.name.lower(),
-                (tool.title or "").lower(),
-                (tool.description or "").lower(),
-            ]
-        )
-        if "reposlist_for_authenticated_user" in text:
-            score += 100
-        if "repos_list_for_authenticated_user" in text:
-            score += 100
-        if "authenticated user" in text and "repositor" in text:
-            score += 20
-        if "viewer" in text and ("repo" in text or "repositor" in text):
-            score += 10
-        if score > 0:
-            candidate_scores[tool.name] = max(candidate_scores.get(tool.name, 0), score)
+    tools_by_name = {tool.name: tool for tool in tools}
 
-    for tool_name, _ in sorted(
-        candidate_scores.items(),
-        key=lambda item: (-item[1], item[0]),
-    ):
-        for arguments in (
-            {"first": 5},
-            {"last": 5},
-            {"repositories_first": 5},
-            {"repositories_last": 5},
-            {"per_page": 5},
-            {},
-        ):
-            try:
-                result = await client.call_tool(tool_name, arguments)
-            except Exception:
-                continue
-            if _extract_repository_list(result):
-                return result
+    candidates = [
+        ("repos_list_for_authenticated_user", {"per_page": 5}),
+        ("reposlist_for_authenticated_user", {"per_page": 5}),
+        ("viewer", {"repositories_first": 5}),
+        ("viewer", {"repositories_last": 5}),
+    ]
+
+    for tool in tools:
+        properties = set((tool.inputSchema or {}).get("properties", {}).keys())
+        if {"repositories_first", "repositories_last"} & properties:
+            if "repositories_first" in properties:
+                candidates.append((tool.name, {"repositories_first": 5}))
+            if "repositories_last" in properties:
+                candidates.append((tool.name, {"repositories_last": 5}))
+        if {
+            "visibility",
+            "affiliation",
+            "type",
+            "sort",
+            "direction",
+            "per_page",
+        }.issubset(properties):
+            candidates.append((tool.name, {"per_page": 5}))
+
+    attempted = []
+    for tool_name, arguments in candidates:
+        if tool_name not in tools_by_name:
+            continue
+        attempted.append(tool_name)
+        try:
+            result = await client.call_tool(tool_name, arguments)
+        except Exception:
+            continue
+        if _extract_repository_list(result):
+            return result
 
     raise AssertionError(
         "No GitHub repository-listing MCP tool returned repositories. "
-        f"Candidates: {sorted(candidate_scores)}"
+        f"Tried: {sorted(set(attempted))}"
     )
 
 
