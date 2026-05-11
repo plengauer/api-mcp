@@ -32,18 +32,9 @@ def _extract_repository_list(value):
 
 async def _call_github_repository_listing_tool(client):
     tools = await client.list_tools()
-    tool_names = {tool.name for tool in tools}
-
-    if "repos_list_for_authenticated_user" in tool_names:
-        result = await client.call_tool(
-            "repos_list_for_authenticated_user",
-            {"per_page": 5},
-        )
-        if _extract_repository_list(result):
-            return result
-
-    graphql_tools = []
+    candidate_scores = {}
     for tool in tools:
+        score = 0
         text = " ".join(
             [
                 tool.name.lower(),
@@ -51,15 +42,27 @@ async def _call_github_repository_listing_tool(client):
                 (tool.description or "").lower(),
             ]
         )
+        if "reposlist_for_authenticated_user" in text:
+            score += 100
+        if "repos_list_for_authenticated_user" in text:
+            score += 100
+        if "authenticated user" in text and "repositor" in text:
+            score += 20
         if "viewer" in text and ("repo" in text or "repositor" in text):
-            graphql_tools.append(tool.name)
+            score += 10
+        if score > 0:
+            candidate_scores[tool.name] = max(candidate_scores.get(tool.name, 0), score)
 
-    for tool_name in sorted(set(graphql_tools)):
+    for tool_name, _ in sorted(
+        candidate_scores.items(),
+        key=lambda item: (-item[1], item[0]),
+    ):
         for arguments in (
             {"first": 5},
             {"last": 5},
             {"repositories_first": 5},
             {"repositories_last": 5},
+            {"per_page": 5},
             {},
         ):
             try:
@@ -69,7 +72,10 @@ async def _call_github_repository_listing_tool(client):
             if _extract_repository_list(result):
                 return result
 
-    raise AssertionError("No GitHub repository-listing MCP tool returned repositories")
+    raise AssertionError(
+        "No GitHub repository-listing MCP tool returned repositories. "
+        f"Candidates: {sorted(candidate_scores)}"
+    )
 
 
 @pytest.mark.asyncio
