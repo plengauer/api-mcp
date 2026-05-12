@@ -118,16 +118,16 @@ jobs:
     strategy:
       matrix:
         include:
-          - name: github-rest
-          - name: github-graphql
+          - name: rest
+          - name: graphql
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          name: image-${{ matrix.name }}
+          name: image-github-${{ matrix.name }}
           path: /tmp
       - run: docker load -i /tmp/image.tar
-      - run: docker run -d --name mcp-test-github -p 8080:8080 mcp-${{ matrix.name }}:latest
+      - run: docker run -d --name mcp-test-github -p 8080:8080 mcp-github-${{ matrix.name }}:latest
       - run: |
           python3 -c "
           import socket, time, sys
