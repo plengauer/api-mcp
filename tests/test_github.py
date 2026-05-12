@@ -22,6 +22,10 @@ def _extract_repository_list(value):
         return []
 
     if isinstance(value, dict):
+        if (
+            "name" in value or "full_name" in value or "nameWithOwner" in value
+        ) and ("id" in value or "url" in value or "owner" in value):
+            return [value]
         for nested_value in value.values():
             repositories = _extract_repository_list(nested_value)
             if repositories:
@@ -35,6 +39,8 @@ async def _call_github_repository_listing_tool(client):
     tools_by_name = {tool.name: tool for tool in tools}
 
     candidates = [
+        ("reposget", {"owner": "octocat", "repo": "Hello-World"}),
+        ("repos_get", {"owner": "octocat", "repo": "Hello-World"}),
         ("repos_list_for_authenticated_user", {"per_page": 5}),
         ("reposlist_for_authenticated_user", {"per_page": 5}),
         ("viewer", {"repositories_first": 5}),
@@ -48,6 +54,8 @@ async def _call_github_repository_listing_tool(client):
                 candidates.append((tool.name, {"repositories_first": 5}))
             if "repositories_last" in properties:
                 candidates.append((tool.name, {"repositories_last": 5}))
+        if {"owner", "repo"}.issubset(properties):
+            candidates.append((tool.name, {"owner": "octocat", "repo": "Hello-World"}))
         if {
             "visibility",
             "affiliation",
