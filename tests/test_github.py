@@ -1,93 +1,123 @@
 import os
+import json
 
 import pytest
 from fastmcp import Client
 
 
-def _extract_repository_list(value):
+def _to_plain(value):
     if hasattr(value, "model_dump"):
         value = value.model_dump()
-
-    if isinstance(value, list):
-        if value and all(isinstance(item, dict) for item in value):
-            if any(
-                "name" in item or "full_name" in item or "nameWithOwner" in item
-                for item in value
-            ):
-                return value
-        for item in value:
-            repositories = _extract_repository_list(item)
-            if repositories:
-                return repositories
-        return []
-
     if isinstance(value, dict):
-        if (
-            "name" in value or "full_name" in value or "nameWithOwner" in value
-        ) and ("id" in value or "url" in value or "owner" in value):
-            return [value]
-        for nested_value in value.values():
-            repositories = _extract_repository_list(nested_value)
-            if repositories:
-                return repositories
+        text_items = value.get("content")
+        if isinstance(text_items, list):
+            for item in text_items:
+                if isinstance(item, dict) and isinstance(item.get("text"), str):
+                    try:
+                        return _to_plain(json.loads(item["text"]))
+                    except json.JSONDecodeError:
+                        continue
+        return {key: _to_plain(nested) for key, nested in value.items()}
+    if isinstance(value, list):
+        return [_to_plain(item) for item in value]
+    return value
 
-    return []
+
+def _looks_like_repository_list(value):
+    if isinstance(value, list):
+        return bool(value) and all(isinstance(item, dict) for item in value) and any(
+            "name" in item or "full_name" in item or "nameWithOwner" in item
+            for item in value
+        )
+    return False
 
 
-async def _call_github_repository_listing_tool(client):
-    tools = await client.list_tools()
-    tools_by_name = {tool.name: tool for tool in tools}
+def _extract_repository_list(value):
+    value = _to_plain(value)
+    candidates = []
 
-    candidates = [
-        ("reposget", {"owner": "octocat", "repo": "Hello-World"}),
-        ("repos_get", {"owner": "octocat", "repo": "Hello-World"}),
-        ("repos_list_for_authenticated_user", {"per_page": 5}),
-        ("reposlist_for_authenticated_user", {"per_page": 5}),
-        ("viewer", {"repositories_first": 5}),
-        ("viewer", {"repositories_last": 5}),
+    def walk(node):
+        if _looks_like_repository_list(node):
+            candidates.append(node)
+        if isinstance(node, list):
+            if node and all(
+                isinstance(item, dict) and isinstance(item.get("node"), dict)
+                for item in node
+            ):
+                nested_nodes = [item["node"] for item in node]
+                if _looks_like_repository_list(nested_nodes):
+                    candidates.append(nested_nodes)
+            for item in node:
+                walk(item)
+            return
+        if isinstance(node, dict):
+            items = node.get("items")
+            if _looks_like_repository_list(items):
+                candidates.append(items)
+            for nested in node.values():
+                walk(nested)
+
+    walk(value)
+    if not candidates:
+        return []
+    return max(candidates, key=len)
+
+
+def _is_api_mcp_repository(repository):
+    full_name = repository.get("full_name") or repository.get("nameWithOwner")
+    if isinstance(full_name, str):
+        return full_name.lower() == "plengauer/api-mcp"
+    name = repository.get("name")
+    return isinstance(name, str) and name.lower() == "api-mcp"
+
+
+async def _call_rest_repository_tool(client, tool_names):
+    rest_candidates = [
+        ("searchrepos", {"q": "user:plengauer", "per_page": 30}),
+        ("reposlist_for_authenticated_user", {"per_page": 30}),
+        ("repos_list_for_authenticated_user", {"per_page": 30}),
     ]
-
-    for tool in tools:
-        properties = set((tool.inputSchema or {}).get("properties", {}).keys())
-        if {"repositories_first", "repositories_last"} & properties:
-            if "repositories_first" in properties:
-                candidates.append((tool.name, {"repositories_first": 5}))
-            if "repositories_last" in properties:
-                candidates.append((tool.name, {"repositories_last": 5}))
-        if {"owner", "repo"}.issubset(properties):
-            candidates.append((tool.name, {"owner": "octocat", "repo": "Hello-World"}))
-        if {
-            "visibility",
-            "affiliation",
-            "type",
-            "sort",
-            "direction",
-            "per_page",
-        }.issubset(properties):
-            candidates.append((tool.name, {"per_page": 5}))
-
     attempted = []
-    for tool_name, arguments in candidates:
-        if tool_name not in tools_by_name:
+    for tool_name, arguments in rest_candidates:
+        if tool_name not in tool_names:
             continue
         attempted.append(tool_name)
         try:
             result = await client.call_tool(tool_name, arguments)
         except Exception:
             continue
-        if _extract_repository_list(result):
-            return result
-
+        repositories = _extract_repository_list(result)
+        if repositories:
+            return tool_name, repositories
     raise AssertionError(
-        "No GitHub repository-listing MCP tool returned repositories. "
-        f"Tried: {sorted(set(attempted))}"
+        "Unable to list repositories via REST MCP tools. "
+        f"Tried: {attempted}"
     )
+
+
+async def _call_graphql_repository_tool(client):
+    result = await client.call_tool("viewer", {"repositories_first": 30})
+    repositories = _extract_repository_list(result)
+    if not repositories:
+        raise AssertionError("GraphQL tool 'viewer' returned no repository list")
+    return "viewer", repositories
+
+
+async def _call_github_repository_listing_tool(client):
+    tools = await client.list_tools()
+    tool_names = {tool.name for tool in tools}
+    if "viewer" in tool_names:
+        return await _call_graphql_repository_tool(client)
+    return await _call_rest_repository_tool(client, tool_names)
 
 
 @pytest.mark.asyncio
 async def test_mcp_lists_github_repositories():
     async with Client(os.environ["MCP_URL"]) as client:
-        result = await _call_github_repository_listing_tool(client)
+        tool_name, repositories = await _call_github_repository_listing_tool(client)
 
-    repositories = _extract_repository_list(result)
-    assert repositories
+    assert isinstance(repositories, list), f"{tool_name} should return a repository list"
+    assert len(repositories) >= 10, f"{tool_name} returned only {len(repositories)} repositories"
+    assert any(_is_api_mcp_repository(repository) for repository in repositories), (
+        f"{tool_name} response did not include plengauer/api-mcp"
+    )
