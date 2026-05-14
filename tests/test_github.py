@@ -72,8 +72,12 @@ def _is_api_mcp_repository(repository):
     full_name = repository.get("full_name") or repository.get("nameWithOwner")
     if isinstance(full_name, str):
         return full_name.lower() == TARGET_REPO_FULL_NAME
+    owner = repository.get("owner")
+    owner_login = owner.get("login") if isinstance(owner, dict) else None
     name = repository.get("name")
-    return isinstance(name, str) and name.lower() == TARGET_REPO_NAME
+    if isinstance(owner_login, str) and isinstance(name, str):
+        return f"{owner_login}/{name}".lower() == TARGET_REPO_FULL_NAME
+    return False
 
 
 async def _call_rest_repository_tool(client, tool_names):
