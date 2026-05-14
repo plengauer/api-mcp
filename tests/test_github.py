@@ -4,6 +4,11 @@ import json
 import pytest
 from fastmcp import Client
 
+TARGET_OWNER = "plengauer"
+TARGET_REPO_FULL_NAME = "plengauer/api-mcp"
+TARGET_REPO_NAME = "api-mcp"
+MIN_EXPECTED_REPOSITORIES = 10
+
 
 def _to_plain(value):
     if hasattr(value, "model_dump"):
@@ -66,14 +71,14 @@ def _extract_repository_list(value):
 def _is_api_mcp_repository(repository):
     full_name = repository.get("full_name") or repository.get("nameWithOwner")
     if isinstance(full_name, str):
-        return full_name.lower() == "plengauer/api-mcp"
+        return full_name.lower() == TARGET_REPO_FULL_NAME
     name = repository.get("name")
-    return isinstance(name, str) and name.lower() == "api-mcp"
+    return isinstance(name, str) and name.lower() == TARGET_REPO_NAME
 
 
 async def _call_rest_repository_tool(client, tool_names):
     rest_candidates = [
-        ("searchrepos", {"q": "user:plengauer", "per_page": 30}),
+        ("searchrepos", {"q": f"user:{TARGET_OWNER}", "per_page": 30}),
         ("reposlist_for_authenticated_user", {"per_page": 30}),
         ("repos_list_for_authenticated_user", {"per_page": 30}),
     ]
@@ -117,7 +122,9 @@ async def test_mcp_lists_github_repositories():
         tool_name, repositories = await _call_github_repository_listing_tool(client)
 
     assert isinstance(repositories, list), f"{tool_name} should return a repository list"
-    assert len(repositories) >= 10, f"{tool_name} returned only {len(repositories)} repositories"
+    assert len(repositories) >= MIN_EXPECTED_REPOSITORIES, (
+        f"{tool_name} returned only {len(repositories)} repositories"
+    )
     assert any(_is_api_mcp_repository(repository) for repository in repositories), (
-        f"{tool_name} response did not include plengauer/api-mcp"
+        f"{tool_name} response did not include {TARGET_REPO_FULL_NAME}"
     )
