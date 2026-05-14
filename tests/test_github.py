@@ -81,27 +81,17 @@ def _is_api_mcp_repository(repository):
 
 
 async def _call_rest_repository_tool(client, tool_names):
-    rest_candidates = [
-        ("searchrepos", {"q": f"user:{TARGET_OWNER}", "per_page": 30}),
-        ("reposlist_for_authenticated_user", {"per_page": 30}),
-        ("repos_list_for_authenticated_user", {"per_page": 30}),
-    ]
-    attempted = []
-    for tool_name, arguments in rest_candidates:
-        if tool_name not in tool_names:
-            continue
-        attempted.append(tool_name)
-        try:
-            result = await client.call_tool(tool_name, arguments)
-        except Exception:
-            continue
-        repositories = _extract_repository_list(result)
-        if repositories:
-            return tool_name, repositories
-    raise AssertionError(
-        "Unable to list repositories via REST MCP tools. "
-        f"Tried: {attempted}"
+    tool_name = "searchrepos"
+    if tool_name not in tool_names:
+        raise AssertionError(f"Missing REST tool: {tool_name}")
+    result = await client.call_tool_mcp(
+        tool_name,
+        {"q": f"user:{TARGET_OWNER}", "per_page": 30},
     )
+    repositories = _extract_repository_list(result)
+    if not repositories:
+        raise AssertionError(f"REST tool '{tool_name}' returned no repository list")
+    return tool_name, repositories
 
 
 async def _call_graphql_repository_tool(client):
