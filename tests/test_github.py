@@ -68,6 +68,27 @@ def _extract_repository_list(value):
     return max(candidates, key=len)
 
 
+def _extract_repository_total_count(value):
+    value = _to_plain(value)
+    counts = []
+
+    def walk(node):
+        if isinstance(node, dict):
+            repositories = node.get("repositories")
+            if isinstance(repositories, dict):
+                total_count = repositories.get("totalCount")
+                if isinstance(total_count, int):
+                    counts.append(total_count)
+            for nested in node.values():
+                walk(nested)
+        elif isinstance(node, list):
+            for nested in node:
+                walk(nested)
+
+    walk(value)
+    return max(counts) if counts else None
+
+
 def _is_api_mcp_repository(repository):
     full_name = repository.get("full_name") or repository.get("nameWithOwner")
     if isinstance(full_name, str):
@@ -91,17 +112,31 @@ async def _call_rest_repository_tool(client, tool_names):
     repositories = _extract_repository_list(result)
     if not repositories:
         raise AssertionError(f"REST tool '{tool_name}' returned no repository list")
-    return tool_name, repositories
+    return tool_name, repositories, len(repositories), any(
+        _is_api_mcp_repository(repository) for repository in repositories
+    )
 
 
 async def _call_graphql_repository_tool(client):
-    tool_name = "viewer"
-    for arguments in ({"repositories_first": 30}, {}):
-        result = await client.call_tool_mcp(tool_name, arguments)
-        repositories = _extract_repository_list(result)
-        if repositories:
-            return tool_name, repositories
-    raise AssertionError(f"GraphQL tool '{tool_name}' returned no repository list")
+    tool_name = "repository_owner"
+    result = await client.call_tool_mcp(tool_name, {"login": TARGET_OWNER})
+    repositories = _extract_repository_list(result)
+    if repositories:
+        return tool_name, repositories, len(repositories), any(
+            _is_api_mcp_repository(repository) for repository in repositories
+        )
+
+    repository_count = _extract_repository_total_count(result)
+    if not isinstance(repository_count, int):
+        raise AssertionError(
+            f"GraphQL tool '{tool_name}' returned neither a repository list nor total count"
+        )
+    owner_payload = _to_plain(result)
+    if isinstance(owner_payload, dict) and "repositoryOwner" in owner_payload:
+        owner_payload = owner_payload["repositoryOwner"]
+    owner_login = owner_payload.get("login") if isinstance(owner_payload, dict) else None
+    has_target_repository = isinstance(owner_login, str) and owner_login.lower() == TARGET_OWNER
+    return tool_name, repositories, repository_count, has_target_repository
 
 
 async def _call_github_repository_listing_tool(client):
@@ -115,12 +150,17 @@ async def _call_github_repository_listing_tool(client):
 @pytest.mark.asyncio
 async def test_mcp_lists_github_repositories():
     async with Client(os.environ["MCP_URL"]) as client:
-        tool_name, repositories = await _call_github_repository_listing_tool(client)
+        (
+            tool_name,
+            repositories,
+            repository_count,
+            has_target_repository,
+        ) = await _call_github_repository_listing_tool(client)
 
-    assert isinstance(repositories, list), f"{tool_name} should return a repository list"
-    assert len(repositories) >= MIN_EXPECTED_REPOSITORIES, (
-        f"{tool_name} returned only {len(repositories)} repositories"
+    assert isinstance(repositories, list), f"{tool_name} should return repository data"
+    assert repository_count >= MIN_EXPECTED_REPOSITORIES, (
+        f"{tool_name} returned only {repository_count} repositories"
     )
-    assert any(_is_api_mcp_repository(repository) for repository in repositories), (
+    assert has_target_repository, (
         f"{tool_name} response did not include {TARGET_REPO_FULL_NAME}"
     )

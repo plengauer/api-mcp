@@ -17,6 +17,7 @@ def _patch_graphql_mcp():
         GraphQLNonNull, GraphQLList,
         GraphQLObjectType, GraphQLInputObjectType,
     )
+    from graphql.pyutils import Undefined
 
     _orig_map = gs._map_graphql_type_to_python_type
     def patched_map(graphql_type, _cache=None):
@@ -99,6 +100,56 @@ def _patch_graphql_mcp():
         f = getattr(gs, fname, None)
         if f is not None:
             setattr(gs, fname, _safe_top(f))
+
+    def _build_selection_set_skip_required_args(
+        graphql_type,
+        max_depth=5,
+        depth=0,
+        _seen_types=frozenset(),
+    ):
+        if depth >= max_depth:
+            return ""
+
+        named_type = gs.get_named_type(graphql_type)
+        if gs.is_leaf_type(named_type):
+            return ""
+
+        type_name = named_type.name
+        is_cycle = type_name in _seen_types
+        seen_with_current = _seen_types | {type_name}
+
+        selections = []
+        if hasattr(named_type, "fields"):
+            for field_name, field_def in named_type.fields.items():
+                if field_name in {"projects"}:
+                    continue
+                field_args = getattr(field_def, "args", {}) or {}
+                has_required_args = any(
+                    isinstance(arg_def.type, GraphQLNonNull)
+                    and getattr(arg_def, "default_value", Undefined) is Undefined
+                    for arg_def in field_args.values()
+                )
+                if has_required_args:
+                    continue
+
+                field_named_type = gs.get_named_type(field_def.type)
+                if gs.is_leaf_type(field_named_type):
+                    selections.append(field_name)
+                elif not is_cycle:
+                    nested_selection = _build_selection_set_skip_required_args(
+                        field_def.type,
+                        max_depth=max_depth,
+                        depth=depth + 1,
+                        _seen_types=seen_with_current,
+                    )
+                    if nested_selection:
+                        selections.append(f"{field_name} {nested_selection}")
+
+        if not selections:
+            return "{ __typename }"
+        return f"{{ {', '.join(selections)} }}"
+
+    gs._build_selection_set = _build_selection_set_skip_required_args
 _patch_graphql_mcp()
 # --- End patch ---
 
