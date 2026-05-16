@@ -95,11 +95,13 @@ async def _call_rest_repository_tool(client, tool_names):
 
 
 async def _call_graphql_repository_tool(client):
-    result = await client.call_tool("viewer", {"repositories_first": 30})
-    repositories = _extract_repository_list(result)
-    if not repositories:
-        raise AssertionError("GraphQL tool 'viewer' returned no repository list")
-    return "viewer", repositories
+    tool_name = "viewer"
+    for arguments in ({"repositories_first": 30}, {}):
+        result = await client.call_tool_mcp(tool_name, arguments)
+        repositories = _extract_repository_list(result)
+        if repositories:
+            return tool_name, repositories
+    raise AssertionError(f"GraphQL tool '{tool_name}' returned no repository list")
 
 
 async def _call_github_repository_listing_tool(client):
