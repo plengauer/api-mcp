@@ -107,6 +107,7 @@ def _patch_graphql_mcp():
         depth=0,
         _seen_types=frozenset(),
     ):
+        """Build a GraphQL selection set while skipping fields that break GitHub execution."""
         if depth >= max_depth:
             return ""
 
@@ -121,7 +122,8 @@ def _patch_graphql_mcp():
         selections = []
         if hasattr(named_type, "fields"):
             for field_name, field_def in named_type.fields.items():
-                if field_name in {"projects"}:
+                # GitHub returns NOT_FOUND for classic projects; omit to keep query tools usable.
+                if field_name == "projects":
                     continue
                 field_args = getattr(field_def, "args", {}) or {}
                 has_required_args = any(

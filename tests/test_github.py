@@ -135,7 +135,9 @@ async def _call_graphql_repository_tool(client):
     if isinstance(owner_payload, dict) and "repositoryOwner" in owner_payload:
         owner_payload = owner_payload["repositoryOwner"]
     owner_login = owner_payload.get("login") if isinstance(owner_payload, dict) else None
-    has_target_repository = isinstance(owner_login, str) and owner_login.lower() == TARGET_OWNER
+    has_target_repository = (
+        isinstance(owner_login, str) and owner_login.lower() == TARGET_OWNER.lower()
+    )
     return tool_name, repositories, repository_count, has_target_repository
 
 
