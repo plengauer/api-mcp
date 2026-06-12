@@ -144,7 +144,7 @@ jobs:
           python-version: "3.14"
       - run: pip install -r tests/requirements.txt
       - env:
-          MCP_URL: http://localhost:8080/mcp?authorization=Bearer+${{ secrets.ACTIONS_GITHUB_TOKEN }}
+          MCP_URL: http://localhost:8080/mcp?authorization=Bearer+${{ secrets.GITHUB_TOKEN }}
         run: pytest tests/test_github.py -v
       - if: always()
         run: docker logs mcp-test-github && docker stop mcp-test-github
