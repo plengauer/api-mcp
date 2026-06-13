@@ -15,8 +15,8 @@ jobs:
   recompile:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
-      actions: read
+      contents: write
+      pull-requests: write
     steps:
       - uses: plengauer/opentelemetry-github/actions/instrument/job@215271fe54efbdffbece78b02493f7ecd73678f8
         env:
