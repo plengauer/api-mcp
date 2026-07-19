@@ -24,7 +24,7 @@ class AuthFromQueryParam:
 
 class DynamicAuth(httpx.Auth):
     def auth_flow(self, request):
-        token = authorization_var.get()
+        token = authorization_var.get() or os.environ.get("HTTP_AUTHORIZATION", "")
         if token:
             request.headers["Authorization"] = token
         yield request
@@ -50,6 +50,10 @@ mcp = FastMCP.from_openapi(
 )
 
 if __name__ == "__main__":
-    app = mcp.http_app(middleware=[Middleware(AuthFromQueryParam)])
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8080)
+    mode = os.environ.get("API_MCP_MODE", "http")
+    if mode == "stdio":
+        mcp.run()
+    else:
+        app = mcp.http_app(middleware=[Middleware(AuthFromQueryParam)])
+        import uvicorn
+        uvicorn.run(app, host="0.0.0.0", port=8080)
