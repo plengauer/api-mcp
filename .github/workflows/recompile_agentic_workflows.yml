@@ -15,8 +15,8 @@ jobs:
   recompile:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
-      actions: read
+      contents: write
+      pull-requests: write
     steps:
       - uses: plengauer/opentelemetry-github/actions/instrument/job@215271fe54efbdffbece78b02493f7ecd73678f8
         env:
@@ -26,12 +26,12 @@ jobs:
           secrets_to_redact: |-
             ${{ github.token }}
             ${{ secrets.ACTIONS_GITHUB_TOKEN }}
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       - env:
           GH_TOKEN: ${{ secrets.ACTIONS_GITHUB_TOKEN }}
         run: |
           gh extension install github/gh-aw
-          gh aw compile
+          gh aw compile --approve
       - id: push
         run: |
           if git diff --quiet HEAD; then exit 0; fi

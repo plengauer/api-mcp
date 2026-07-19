@@ -17,7 +17,7 @@ jobs:
           OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}
         with:
           secrets_to_redact: ${{ github.token }}
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
       - id: matrix
         run: |
           pip install --quiet pyyaml==6.0.2
@@ -41,7 +41,7 @@ jobs:
           OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}
         with:
           secrets_to_redact: ${{ github.token }}
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
       - id: config
         run: |
           if [ "${{ matrix.type }}" = "graphql" ]; then
@@ -91,7 +91,7 @@ jobs:
           secrets_to_redact: |-
             ${{ github.token }}
             ${{ secrets.GITHUB_TOKEN }}
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: image-${{ matrix.name }}
@@ -129,7 +129,7 @@ jobs:
           - name: rest
           - name: graphql
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: image-github-${{ matrix.name }}
@@ -152,7 +152,7 @@ jobs:
           python-version: "3.14"
       - run: pip install -r tests/requirements.txt
       - env:
-          MCP_URL: http://localhost:8080/mcp?authorization=Bearer+${{ secrets.ACTIONS_GITHUB_TOKEN }}
+          MCP_URL: http://localhost:8080/mcp?authorization=Bearer+${{ secrets.GITHUB_TOKEN }}
         run: pytest tests/test_github.py -v
       - if: always()
         run: docker logs mcp-test-github && docker stop mcp-test-github
