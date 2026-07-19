@@ -296,5 +296,21 @@ class _LazyMCPApp:
 
 
 if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(_LazyMCPApp(), host="0.0.0.0", port=8080)
+    mode = os.environ.get("API_MCP_MODE", "http")
+    if mode == "stdio":
+        import asyncio
+        http_auth = os.environ.get("HTTP_AUTHORIZATION", "")
+        mcp = GraphQLMCP.from_remote_url(
+            url=os.environ["API_MCP_BASE_URL"],
+            headers={"Authorization": http_auth} if http_auth else {},
+            forward_bearer_token=True,
+            name=os.environ["API_MCP_SERVER_NAME"],
+        )
+        tools = asyncio.run(mcp.list_tools())
+        for tool in tools:
+            if len(tool.name) > _MCP_MAX_TOOL_NAME_LENGTH:
+                mcp.local_provider.remove_tool(tool.name)
+        mcp.run()
+    else:
+        import uvicorn
+        uvicorn.run(_LazyMCPApp(), host="0.0.0.0", port=8080)
