@@ -298,7 +298,6 @@ class _LazyMCPApp:
 if __name__ == "__main__":
     mode = os.environ.get("API_MCP_MODE", "http")
     if mode == "stdio":
-        import asyncio
         http_auth = os.environ.get("HTTP_AUTHORIZATION", "")
         mcp = GraphQLMCP.from_remote_url(
             url=os.environ["API_MCP_BASE_URL"],
