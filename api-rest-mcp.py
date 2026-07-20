@@ -1,3 +1,4 @@
+import asyncio
 import os
 from contextvars import ContextVar
 from urllib.parse import parse_qs
@@ -52,7 +53,7 @@ mcp = FastMCP.from_openapi(
 if __name__ == "__main__":
     mode = os.environ.get("API_MCP_MODE", "http")
     if mode == "stdio":
-        mcp.run()
+        asyncio.run(mcp.run_async(transport="stdio"))
     else:
         app = mcp.http_app(middleware=[Middleware(AuthFromQueryParam)])
         import uvicorn
