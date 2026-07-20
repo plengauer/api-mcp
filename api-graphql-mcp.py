@@ -311,6 +311,7 @@ if __name__ == "__main__":
                 if len(tool.name) > _MCP_MAX_TOOL_NAME_LENGTH:
                     mcp.local_provider.remove_tool(tool.name)
             await mcp.run_async(transport="stdio")
+            await asyncio.Event().wait()
         asyncio.run(_run())
     else:
         import uvicorn
