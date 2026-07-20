@@ -1,8 +1,10 @@
 import os
 import json
+from urllib.parse import urlparse, parse_qs, unquote_plus
 
 import pytest
 from fastmcp import Client
+from fastmcp.client.transports import StdioTransport
 
 TARGET_OWNER = "plengauer"
 TARGET_REPO_FULL_NAME = "plengauer/api-mcp"
@@ -152,6 +154,46 @@ async def _call_github_repository_listing_tool(client):
 @pytest.mark.asyncio
 async def test_mcp_lists_github_repositories():
     async with Client(os.environ["MCP_URL"]) as client:
+        (
+            tool_name,
+            repositories,
+            repository_count,
+            has_target_repository,
+        ) = await _call_github_repository_listing_tool(client)
+
+    assert isinstance(repositories, list), f"{tool_name} should return repository data"
+    assert repository_count >= MIN_EXPECTED_REPOSITORIES, (
+        f"{tool_name} returned only {repository_count} repositories"
+    )
+    assert has_target_repository, (
+        f"{tool_name} response did not include {TARGET_REPO_FULL_NAME}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_mcp_lists_github_repositories_via_stdio():
+    image = os.environ.get("MCP_STDIO_IMAGE")
+    if not image:
+        pytest.skip("MCP_STDIO_IMAGE not set")
+
+    url = os.environ.get("MCP_URL", "")
+    auth = ""
+    if url:
+        qs = parse_qs(urlparse(url).query)
+        auth_values = qs.get("authorization", [])
+        if auth_values:
+            auth = unquote_plus(auth_values[0])
+
+    transport = StdioTransport(
+        command="docker",
+        args=[
+            "run", "--rm", "-i",
+            "-e", "API_MCP_MODE=stdio",
+            "-e", f"HTTP_AUTHORIZATION={auth}",
+            image,
+        ],
+    )
+    async with Client(transport, init_timeout=300) as client:
         (
             tool_name,
             repositories,
