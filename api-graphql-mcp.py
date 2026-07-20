@@ -305,7 +305,7 @@ if __name__ == "__main__":
             forward_bearer_token=True,
             name=os.environ["API_MCP_SERVER_NAME"],
         )
-        tools = await mcp.list_tools()
+        tools = asyncio.run(mcp.list_tools())
         for tool in tools:
             if len(tool.name) > _MCP_MAX_TOOL_NAME_LENGTH:
                 mcp.local_provider.remove_tool(tool.name)
