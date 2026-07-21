@@ -1,34 +1,40 @@
 import subprocess
 import sys
 
+import pytest
 
-def test_stdio_mode_stays_alive():
+
+STDIO_BLOCKING_TIMEOUT_SECONDS = 180
+
+
+def test_stdio_mode_stays_alive_while_stdin_open():
     proc = subprocess.Popen(
         [
             sys.executable,
             "-c",
             """
-import asyncio
 from fastmcp import FastMCP
 
-mcp = FastMCP("test")
-
-async def _run_stdio():
-    await mcp.run_async(transport="stdio")
-    await asyncio.Event().wait()
-
-asyncio.run(_run_stdio())
+FastMCP("test").run(transport="stdio")
 """,
         ],
-        stdin=subprocess.DEVNULL,
+        stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
     try:
-        returncode = proc.wait(timeout=3)
-        assert False, f"stdio mode process must not terminate, but exited with code {returncode}"
-    except subprocess.TimeoutExpired:
-        pass  # process is still alive as expected
+        with pytest.raises(subprocess.TimeoutExpired):
+            proc.wait(timeout=STDIO_BLOCKING_TIMEOUT_SECONDS)
+
+        assert proc.stdin is not None
+        proc.stdin.close()
+        returncode = proc.wait(timeout=30)
+        assert returncode == 0, f"stdio mode process exited with {returncode} after stdin closed"
     finally:
-        proc.terminate()
-        proc.wait(timeout=5)
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=5)

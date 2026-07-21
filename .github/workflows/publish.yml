@@ -143,6 +143,7 @@ jobs:
         with:
           python-version: "3.14"
       - run: pip install -r tests/requirements.txt
+      - run: pytest tests/test_stdio.py -v
       - env:
           MCP_URL: http://localhost:8080/mcp?authorization=Bearer+${{ secrets.GITHUB_TOKEN }}
           MCP_STDIO_IMAGE: mcp-github-${{ matrix.name }}
