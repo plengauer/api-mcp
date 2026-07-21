@@ -132,8 +132,6 @@ jobs:
           MCP_STDIO_IMAGE: mcp-github-${{ matrix.name }}
           HTTP_AUTHORIZATION: Bearer ${{ secrets.GITHUB_TOKEN }}
         run: pytest tests/test_stdio.py -v
-      - if: always()
-        run: docker logs mcp-test && docker stop mcp-test
     permissions:
       actions: read
   test-github:
