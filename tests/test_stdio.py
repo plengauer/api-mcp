@@ -25,7 +25,7 @@ asyncio.run(_run_stdio())
         stderr=subprocess.PIPE,
     )
     try:
-        returncode = proc.wait(timeout=3)
+        returncode = proc.wait(timeout=60)
         assert False, f"stdio mode process must not terminate, but exited with code {returncode}"
     except subprocess.TimeoutExpired:
         pass  # process is still alive as expected
