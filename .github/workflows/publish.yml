@@ -143,7 +143,62 @@ jobs:
         with:
           python-version: "3.14"
       - run: pip install -r tests/requirements.txt
-      - run: pytest tests/test_stdio.py -v
+      - env:
+          MCP_STDIO_IMAGE: mcp-github-${{ matrix.name }}:latest
+          MCP_URL: http://localhost:8080/mcp?authorization=Bearer+${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import subprocess
+          from urllib.parse import parse_qs, unquote_plus, urlparse
+          
+          query = parse_qs(urlparse(os.environ["MCP_URL"]).query)
+          auth_values = query.get("authorization", [])
+          auth = unquote_plus(auth_values[0]) if auth_values else ""
+          
+          proc = subprocess.Popen(
+              [
+                  "docker",
+                  "run",
+                  "--rm",
+                  "-i",
+                  "-e",
+                  "API_MCP_MODE=stdio",
+                  "-e",
+                  f"HTTP_AUTHORIZATION={auth}",
+                  os.environ["MCP_STDIO_IMAGE"],
+              ],
+              stdin=subprocess.PIPE,
+              stdout=subprocess.PIPE,
+              stderr=subprocess.PIPE,
+          )
+          
+          try:
+              try:
+                  returncode = proc.wait(timeout=180)
+              except subprocess.TimeoutExpired:
+                  returncode = None
+          
+              if returncode is not None:
+                  raise AssertionError(
+                      f"stdio image exited early with code {returncode}"
+                  )
+          
+              proc.stdin.close()
+              returncode = proc.wait(timeout=30)
+              if returncode != 0:
+                  raise AssertionError(
+                      f"stdio image exited with code {returncode} after stdin close"
+                  )
+          finally:
+              if proc.poll() is None:
+                  proc.terminate()
+                  try:
+                      proc.wait(timeout=5)
+                  except subprocess.TimeoutExpired:
+                      proc.kill()
+                      proc.wait(timeout=5)
+          PY
       - env:
           MCP_URL: http://localhost:8080/mcp?authorization=Bearer+${{ secrets.GITHUB_TOKEN }}
           MCP_STDIO_IMAGE: mcp-github-${{ matrix.name }}
