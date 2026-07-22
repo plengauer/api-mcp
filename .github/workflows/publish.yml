@@ -175,7 +175,7 @@ jobs:
           
           try:
               try:
-                  returncode = proc.wait(timeout=60 * 10)
+                  returncode = proc.wait(timeout=(60 * 10))
               except subprocess.TimeoutExpired:
                   returncode = None
           
