@@ -191,8 +191,10 @@ jobs:
                       raise AssertionError(
                           f"stdio image exited with code {returncode} after stdin close"
                       )
-              except subprocess.TimeoutExpired:
-                  pass
+              except subprocess.TimeoutExpired as e:
+                  raise AssertionError(
+                      "stdio image did not exit within 30s after stdin close"
+                  ) from e
           finally:
               if proc.poll() is None:
                   proc.terminate()
