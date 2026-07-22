@@ -175,7 +175,7 @@ jobs:
           
           try:
               try:
-                  returncode = proc.wait(timeout=180)
+                  returncode = proc.wait(timeout=60 * 10)
               except subprocess.TimeoutExpired:
                   returncode = None
           
@@ -186,7 +186,7 @@ jobs:
           
               proc.stdin.close()
               try:
-                  returncode = proc.wait(timeout=600)
+                  returncode = proc.wait(timeout=30)
                   if returncode != 0:
                       raise AssertionError(
                           f"stdio image exited with code {returncode} after stdin close"
