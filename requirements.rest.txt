@@ -1,4 +1,4 @@
-fastmcp==3.4.0
+fastmcp==3.4.4
 httpx==0.28.1
-opentelemetry-distro==0.63b1
-opentelemetry-exporter-otlp==1.42.1
+opentelemetry-distro==0.65b0
+opentelemetry-exporter-otlp==1.44.0

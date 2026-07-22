@@ -17,7 +17,7 @@ jobs:
           OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}
         with:
           secrets_to_redact: ${{ github.token }}
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - id: matrix
         run: |
           pip install --quiet pyyaml==6.0.2
@@ -41,7 +41,7 @@ jobs:
           OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}
         with:
           secrets_to_redact: ${{ github.token }}
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - id: config
         run: |
           if [ "${{ matrix.type }}" = "graphql" ]; then
@@ -62,7 +62,7 @@ jobs:
               echo 'EOF'
             } >> $GITHUB_OUTPUT
           fi
-      - uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7
+      - uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
         with:
           context: .
           file: ${{ steps.config.outputs.dockerfile }}
@@ -83,15 +83,7 @@ jobs:
     strategy:
       matrix: ${{ fromJson(needs.setup-matrix.outputs.matrix) }}
     steps:
-      - uses: plengauer/opentelemetry-github/actions/instrument/job@215271fe54efbdffbece78b02493f7ecd73678f8
-        env:
-          OTEL_EXPORTER_OTLP_ENDPOINT: ${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}
-          OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}
-        with:
-          secrets_to_redact: |-
-            ${{ github.token }}
-            ${{ secrets.GITHUB_TOKEN }}
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: image-${{ matrix.name }}
@@ -109,7 +101,7 @@ jobs:
                   time.sleep(2)
           sys.exit(1)
           "
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.14"
       - run: pip install -r tests/requirements.txt
@@ -129,7 +121,7 @@ jobs:
           - name: rest
           - name: graphql
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: image-github-${{ matrix.name }}
@@ -147,12 +139,74 @@ jobs:
                   time.sleep(2)
           sys.exit(1)
           "
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.14"
       - run: pip install -r tests/requirements.txt
       - env:
+          MCP_STDIO_IMAGE: mcp-github-${{ matrix.name }}:latest
           MCP_URL: http://localhost:8080/mcp?authorization=Bearer+${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import subprocess
+          from urllib.parse import parse_qs, unquote_plus, urlparse
+          
+          query = parse_qs(urlparse(os.environ["MCP_URL"]).query)
+          auth_values = query.get("authorization", [])
+          auth = unquote_plus(auth_values[0]) if auth_values else ""
+          
+          proc = subprocess.Popen(
+              [
+                  "docker",
+                  "run",
+                  "--rm",
+                  "-i",
+                  "-e",
+                  "API_MCP_MODE=stdio",
+                  "-e",
+                  f"HTTP_AUTHORIZATION={auth}",
+                  os.environ["MCP_STDIO_IMAGE"],
+              ],
+              stdin=subprocess.PIPE,
+              stdout=subprocess.DEVNULL,
+              stderr=subprocess.DEVNULL,
+          )
+          
+          try:
+              try:
+                  returncode = proc.wait(timeout=(60 * 10))
+              except subprocess.TimeoutExpired:
+                  returncode = None
+          
+              if returncode is not None:
+                  raise AssertionError(
+                      f"stdio image exited early with code {returncode}"
+                  )
+          
+              proc.stdin.close()
+              try:
+                  returncode = proc.wait(timeout=30)
+                  if returncode != 0:
+                      raise AssertionError(
+                          f"stdio image exited with code {returncode} after stdin close"
+                      )
+              except subprocess.TimeoutExpired as e:
+                  raise AssertionError(
+                      "stdio image did not exit within 30s after stdin close"
+                  ) from e
+          finally:
+              if proc.poll() is None:
+                  proc.terminate()
+                  try:
+                      proc.wait(timeout=5)
+                  except subprocess.TimeoutExpired:
+                      proc.kill()
+                      proc.wait(timeout=5)
+          PY
+      - env:
+          MCP_URL: http://localhost:8080/mcp?authorization=Bearer+${{ secrets.GITHUB_TOKEN }}
+          MCP_STDIO_IMAGE: mcp-github-${{ matrix.name }}
         run: pytest tests/test_github.py -v
       - if: always()
         run: docker logs mcp-test-github && docker stop mcp-test-github
@@ -162,6 +216,7 @@ jobs:
     if: ${{ always() }}
     runs-on: ubuntu-latest
     needs: [ test, test-github ]
+    permissions: {}
     steps:
       - if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped') }}
         run: exit 1          
@@ -188,7 +243,7 @@ jobs:
           name: image-${{ matrix.name }}
           path: /tmp
       - run: docker load -i /tmp/image.tar
-      - uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4
+      - uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
