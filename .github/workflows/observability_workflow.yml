@@ -20,10 +20,10 @@ jobs:
   export:
     runs-on: ubuntu-latest
     steps:
-      - uses: plengauer/opentelemetry-github/actions/instrument/workflow@215271fe54efbdffbece78b02493f7ecd73678f8
+      - uses: plengauer/opentelemetry-github/actions/instrument/workflow@2169fb0fa9a8260fde99a2a185bbf99a5d63546e # v5.59.0
         env:
           OTEL_EXPORTER_OTLP_ENDPOINT: ${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}
           OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}
-    container: ghcr.io/plengauer/opentelemetry-github-workflow-instrumentation-runner:215271fe54efbdffbece78b02493f7ecd73678f8
+    container: ghcr.io/plengauer/opentelemetry-github-workflow-instrumentation-runner:v5.59.0
     permissions:
       actions: read
