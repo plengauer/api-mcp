@@ -44,7 +44,8 @@ mcp = FastMCP.from_openapi(
     openapi_spec = fix_spec(httpx.get(os.environ["API_MCP_OPENAPI_SPEC_URL"], follow_redirects=True).raise_for_status().json()),
     client = httpx.AsyncClient(
         base_url = os.environ["API_MCP_BASE_URL"],
-        auth = DynamicAuth()
+        auth = DynamicAuth(),
+        follow_redirects = True
     ),
     name = os.environ["API_MCP_SERVER_NAME"]
 )
