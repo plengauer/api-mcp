@@ -24,9 +24,11 @@ class AuthFromQueryParam:
 
 class DynamicAuth(httpx.Auth):
     def auth_flow(self, request):
-        token = authorization_var.get() or os.environ.get("HTTP_AUTHORIZATION", "")
-        if token:
-            request.headers["Authorization"] = token
+        base = httpx.URL(os.environ["API_MCP_BASE_URL"])
+        if request.url.scheme == base.scheme and request.url.host == base.host and request.url.port == base.port:
+            token = authorization_var.get() or os.environ.get("HTTP_AUTHORIZATION", "")
+            if token:
+                request.headers["Authorization"] = token
         yield request
 
 def fix_spec(obj):
