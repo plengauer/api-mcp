@@ -3,17 +3,20 @@ on:
   workflow_run:
     workflows:
       - .github/workflows/copilot-setup-steps.yml
+      - Autobackport
+      - Autotriage
       - Autoversion
       - Build and Publish MCP Containers
       - Claude
       - CodeQL
+      - Copilot
       - Copilot cloud agent
       - Copilot code review
-      - Copilot coding agent
       - Dependency Graph
       - OpenAI Codex
       - Recompile Agentic Workflows
       - Renovate
+      - Report Failed Workflows
     types:
       - completed
 jobs:
