@@ -15,6 +15,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      actions: read
     steps:
       - uses: plengauer/opentelemetry-github/actions/instrument/job@a00ae915cd63b3c372c912ff7019e08a0934b441 # v5.61.1
         env:
