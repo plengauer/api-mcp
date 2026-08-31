@@ -15,3 +15,9 @@ apis:
     server_name: Discord API
     openapi_spec_url: https://raw.githubusercontent.com/discord/discord-api-spec/main/specs/openapi.json
     base_url: https://discord.com/api/v10
+
+  - name: youtube
+    type: rest
+    server_name: YouTube Data API v3
+    openapi_spec_url: https://api.apis.guru/v2/specs/googleapis.com/youtube/v3/openapi.json
+    base_url: https://youtube.googleapis.com/
