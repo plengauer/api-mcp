@@ -57,6 +57,9 @@ if __name__ == "__main__":
     if mode == "stdio":
         mcp.run()
     else:
-        app = mcp.http_app(middleware=[Middleware(AuthFromQueryParam)])
+        app = mcp.http_app(
+            middleware=[Middleware(AuthFromQueryParam)],
+            stateless_http=True,
+        )
         import uvicorn
         uvicorn.run(app, host="0.0.0.0", port=8080)

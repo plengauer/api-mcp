@@ -225,7 +225,10 @@ class _LazyMCPApp:
         for tool in await mcp.list_tools():
             if len(tool.name) > _MCP_MAX_TOOL_NAME_LENGTH:
                 mcp.local_provider.remove_tool(tool.name)
-        app = mcp.http_app(middleware=[Middleware(AuthFromQueryParam)])
+        app = mcp.http_app(
+            middleware=[Middleware(AuthFromQueryParam)],
+            stateless_http=True,
+        )
 
         # Drive the inner app's lifespan as a background task so its session
         # manager is up before we forward any requests to it.
