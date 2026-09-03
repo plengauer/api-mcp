@@ -1,6 +1,8 @@
 import asyncio
+import functools
 import os
 import inspect
+import sys
 
 # --- Patches for graphql_mcp to handle huge schemas like GitHub ---
 # Without these, GraphQLMCP.from_remote_url() never returns on the GitHub
@@ -11,6 +13,10 @@ import inspect
 #      don't ("non-default argument follows default argument").
 #   3. GitHub has GraphQL field args named after Python keywords (e.g. `from`)
 #      which inspect.Parameter rejects.
+#   4. graphql_mcp.server logs warnings/errors via bare print(), which writes
+#      to stdout. In stdio mode stdout is the MCP JSON-RPC transport, so any
+#      such print() corrupts the protocol stream and makes every subsequent
+#      tool call hang until the client times out. Force it to stderr instead.
 def _patch_graphql_mcp():
     import graphql_mcp.server as gs
     from graphql import (
@@ -152,6 +158,8 @@ def _patch_graphql_mcp():
         return f"{{ {', '.join(selections)} }}"
 
     gs._build_selection_set = _build_selection_set_skip_required_args
+
+    gs.print = functools.partial(print, file=sys.stderr)
 _patch_graphql_mcp()
 # --- End patch ---
 
