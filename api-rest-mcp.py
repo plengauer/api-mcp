@@ -1,10 +1,22 @@
+import builtins
+import functools
 import os
+import sys
 from contextvars import ContextVar
 from urllib.parse import parse_qs
 import httpx
 from fastmcp import FastMCP
 from starlette.middleware import Middleware
 from starlette.types import ASGIApp, Receive, Scope, Send
+
+# In stdio mode, stdout *is* the MCP JSON-RPC transport (see mcp.server.stdio),
+# so any dependency that writes diagnostics via a bare print() call (which
+# defaults to stdout) corrupts the protocol stream and makes every subsequent
+# tool call hang until the client times out — even for otherwise-successful
+# responses. Force print() to go to stderr by default so no library can leak
+# output onto the transport channel.
+if os.environ.get("API_MCP_MODE", "http") == "stdio":
+    builtins.print = functools.partial(print, file=sys.stderr)
 
 authorization_var: ContextVar[str] = ContextVar("authorization", default="")
 
