@@ -20,4 +20,4 @@ apis:
     type: rest
     server_name: YouTube Data API v3
     openapi_spec_url: https://api.apis.guru/v2/specs/googleapis.com/youtube/v3/openapi.json
-    base_url: https://youtube.googleapis.com/
+    base_url: https://youtube.googleapis.com
