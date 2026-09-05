@@ -40,7 +40,10 @@ class DynamicAuth(httpx.Auth):
 def fix_spec(obj):
     if isinstance(obj, dict):
         return {
-            k: fix_spec(v)
+            k: (
+                v.replace("/", "_") if k == "operationId" and isinstance(v, str)
+                else fix_spec(v)
+            )
             for k, v in obj.items()
             if not (k == "enum" and v == [])
         }
