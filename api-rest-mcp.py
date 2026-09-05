@@ -3,6 +3,7 @@ from contextvars import ContextVar
 from urllib.parse import parse_qs
 import httpx
 from fastmcp import FastMCP
+from fastmcp.server.providers.openapi import RouteMap, MCPType
 from starlette.middleware import Middleware
 from starlette.types import ASGIApp, Receive, Scope, Send
 
@@ -48,6 +49,19 @@ def fix_spec(obj):
         return [fix_spec(item) for item in obj]
     return obj
 
+# Tag every generated tool as "read" (GET) or "write" (everything that can
+# mutate state) based on the HTTP method of the underlying route, so MCP
+# clients that support tag-based tool filtering can distinguish read-only
+# calls from ones with side effects. This keeps every route a plain TOOL -
+# no existing tool is renamed, removed, or turned into a resource.
+READ_METHODS = ["GET"]
+WRITE_METHODS = ["POST", "PUT", "PATCH", "DELETE"]
+
+route_maps = [
+    RouteMap(methods=READ_METHODS, mcp_type=MCPType.TOOL, mcp_tags={"read"}),
+    RouteMap(methods=WRITE_METHODS, mcp_type=MCPType.TOOL, mcp_tags={"write"}),
+]
+
 mcp = FastMCP.from_openapi(
     openapi_spec = fix_spec(httpx.get(os.environ["API_MCP_OPENAPI_SPEC_URL"], follow_redirects=True).raise_for_status().json()),
     client = httpx.AsyncClient(
@@ -55,7 +69,8 @@ mcp = FastMCP.from_openapi(
         auth = DynamicAuth(),
         follow_redirects = True
     ),
-    name = os.environ["API_MCP_SERVER_NAME"]
+    name = os.environ["API_MCP_SERVER_NAME"],
+    route_maps = route_maps,
 )
 
 if __name__ == "__main__":
