@@ -8,18 +8,24 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 authorization_var: ContextVar[str] = ContextVar("authorization", default="")
 
-class AuthFromQueryParam:
+class AuthFromHeaderOrQueryParam:
     def __init__(self, app: ASGIApp):
         self.app = app
     async def __call__(self, scope: Scope, receive: Receive, send: Send):
         if scope["type"] == "http":
-            qs = parse_qs(scope.get("query_string", b"").decode())
-            token = qs.get("authorization", [""])[0]
+            token = ""
+            for name, value in scope.get("headers", []):
+                if name.lower() == b"authorization":
+                    token = value.decode()
+                    break
+            if not token:
+                qs = parse_qs(scope.get("query_string", b"").decode())
+                token = qs.get("authorization", [""])[0]
+                if token:
+                    headers = list(scope.get("headers", []))
+                    headers.append((b"authorization", token.encode()))
+                    scope["headers"] = headers
             authorization_var.set(token)
-            if token:
-                headers = list(scope.get("headers", []))
-                headers.append((b"authorization", token.encode()))
-                scope["headers"] = headers
         await self.app(scope, receive, send)
 
 class DynamicAuth(httpx.Auth):
@@ -58,7 +64,7 @@ if __name__ == "__main__":
         mcp.run()
     else:
         app = mcp.http_app(
-            middleware=[Middleware(AuthFromQueryParam)],
+            middleware=[Middleware(AuthFromHeaderOrQueryParam)],
             stateless_http=True,
         )
         import uvicorn
