@@ -22,31 +22,36 @@ def _hint(annotations, name):
 
 
 @pytest.mark.asyncio
-async def test_mcp_tools_are_annotated_read_or_write():
-    """Every generated tool must declare whether it reads or writes.
+async def test_mcp_tools_are_classified_read_or_write():
+    """No tool may land in a host's "other tools" bucket.
 
-    The read/write split is driven by the HTTP method of the underlying route,
-    and it has to reach clients as standard MCP tool annotations. FastMCP tags
-    alone are not enough: they are FastMCP-specific metadata that surfaces only
-    under _meta.fastmcp.tags and is invisible to MCP clients.
+    Hosts group connector tools on two annotations and treat them as mutually
+    exclusive flags: readOnlyHint=true is a read, destructiveHint=true is a
+    write/delete, and a tool that asserts NEITHER is left unclassified - Claude
+    files those under "other tools". Setting readOnlyHint alone is therefore
+    not enough: a mutating tool with destructiveHint=false asserts nothing and
+    disappears into that bucket.
     """
-    if os.environ.get("API_MCP_TYPE", "rest") != "rest":
-        pytest.skip("read/write classification is HTTP-method based, REST only")
-
     async with Client(os.environ["MCP_URL"]) as client:
         tools = await client.list_tools()
 
     assert tools
-    unannotated = [tool.name for tool in tools if _hint(tool.annotations, "read_only_hint") is None]
-    assert not unannotated, f"tools without a readOnlyHint annotation: {unannotated[:10]}"
 
-    read_only = [tool.name for tool in tools if _hint(tool.annotations, "read_only_hint")]
-    writing = [tool.name for tool in tools if not _hint(tool.annotations, "read_only_hint")]
-    assert read_only, "no tool is annotated as read-only"
-    assert writing, "no tool is annotated as writing"
-
+    reads, writes, unclassified = [], [], []
     for tool in tools:
-        if _hint(tool.annotations, "read_only_hint"):
-            assert not _hint(tool.annotations, "destructive_hint"), (
-                f"{tool.name} is read-only but annotated destructive"
-            )
+        read_only = _hint(tool.annotations, "read_only_hint")
+        destructive = _hint(tool.annotations, "destructive_hint")
+        if read_only is True and destructive is False:
+            reads.append(tool.name)
+        elif destructive is True and read_only is False:
+            writes.append(tool.name)
+        else:
+            unclassified.append(tool.name)
+
+    assert not unclassified, (
+        f"{len(unclassified)} tool(s) assert neither readOnlyHint nor "
+        f"destructiveHint and will show up as \"other tools\": "
+        f"{unclassified[:10]}"
+    )
+    assert reads, "no tool is classified as a read"
+    assert writes, "no tool is classified as a write"

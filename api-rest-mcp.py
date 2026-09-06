@@ -59,17 +59,24 @@ def fix_spec(obj):
 # tool is renamed, removed, or turned into a resource.
 #
 # The classification is published two ways:
-#   * as MCP tool annotations (readOnlyHint / destructiveHint / idempotentHint),
-#     which is the standard, client-visible mechanism, and
+#   * as MCP tool annotations, which is the standard, client-visible mechanism,
+#     and
 #   * as FastMCP tags, for clients that support tag-based tool filtering.
 # Tags alone are FastMCP-specific metadata (they only show up under
 # _meta.fastmcp.tags) and are ignored by MCP clients, so without the
 # annotations the read/write split is invisible in tools/list.
+#
+# readOnlyHint and destructiveHint are what hosts actually group on, and they
+# treat the two as mutually exclusive flags: readOnlyHint=true means "read",
+# destructiveHint=true means "write/delete", and a tool that asserts NEITHER is
+# left unclassified - Claude files those under "other tools". So every write
+# method must set destructiveHint=true, including POST and PATCH: HTTP's
+# create-vs-replace distinction is finer than the one flag can carry, and
+# leaving it false on a mutating call reads as "no assertion", not as "safe".
+# idempotentHint still carries the finer HTTP semantics for clients that want
+# it.
 READ_METHODS = ["GET", "HEAD", "OPTIONS", "TRACE"]
 WRITE_METHODS = ["POST", "PUT", "PATCH", "DELETE"]
-# Only meaningful for write methods: DELETE removes and PUT replaces, whereas
-# POST/PATCH create or amend.
-DESTRUCTIVE_METHODS = {"PUT", "DELETE"}
 # Repeating the call has the same effect as making it once.
 IDEMPOTENT_METHODS = {"GET", "HEAD", "OPTIONS", "TRACE", "PUT", "DELETE"}
 
@@ -85,7 +92,7 @@ def annotate_read_or_write(route, component):
     read_only = method in READ_METHODS
     component.annotations = ToolAnnotations(
         readOnlyHint = read_only,
-        destructiveHint = (not read_only) and method in DESTRUCTIVE_METHODS,
+        destructiveHint = not read_only,
         idempotentHint = method in IDEMPOTENT_METHODS,
         openWorldHint = True,
     )
