@@ -156,11 +156,79 @@ _patch_graphql_mcp()
 # --- End patch ---
 
 from urllib.parse import parse_qs
+import graphql_mcp.server as graphql_mcp_server
 from graphql_mcp.server import GraphQLMCP
+from mcp.types import ToolAnnotations
 from starlette.middleware import Middleware
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 _MCP_MAX_TOOL_NAME_LENGTH = 64
+
+
+def _mutation_tool_names(mcp):
+    """Tool names generated from the schema's Mutation root."""
+    schema = getattr(mcp, "schema", None)
+    mutation_type = getattr(schema, "mutation_type", None) if schema else None
+    if mutation_type is None:
+        return set()
+    return {
+        graphql_mcp_server._to_snake_case(field_name)
+        for field_name in mutation_type.fields
+    }
+
+
+def _classify_read_or_write(mcp, tool, mutation_tool_names):
+    """Publish a read/write classification for one generated tool.
+
+    graphql_mcp infers readOnlyHint=True for query-backed tools but leaves
+    mutation-backed ones with every hint unset, and it never assigns tags. So
+    on the wire a mutation is indistinguishable from a tool whose author simply
+    said nothing - there is no explicit write classification for a client to
+    act on. Mirror what the REST server does: state readOnlyHint outright on
+    every tool and tag it "read" or "write".
+
+    A tool counts as read-only only if it is positively known to be one, so
+    anything unrecognised is classified as a write rather than silently
+    presented as safe.
+    """
+    annotations = tool.annotations
+    read_only = (
+        annotations is not None
+        and annotations.readOnlyHint is True
+        and tool.name not in mutation_tool_names
+    )
+
+    def keep(current, fallback):
+        return current if current is not None else fallback
+
+    tool.annotations = ToolAnnotations(
+        title = annotations.title if annotations is not None else None,
+        readOnlyHint = read_only,
+        # Hosts treat readOnlyHint and destructiveHint as mutually exclusive
+        # flags and leave a tool that asserts neither unclassified, so every
+        # mutation states destructiveHint outright. GraphQL draws no
+        # create/replace/delete distinction to make it any finer than that.
+        destructiveHint = not read_only,
+        idempotentHint = keep(
+            annotations.idempotentHint if annotations is not None else None,
+            True if read_only else False,
+        ),
+        openWorldHint = keep(
+            annotations.openWorldHint if annotations is not None else None,
+            True,
+        ),
+    )
+    tool.tags = set(tool.tags or ()) | {"read" if read_only else "write"}
+
+
+def _finalize_tools(mcp, tools):
+    """Drop over-long tool names and classify what remains as read or write."""
+    mutation_tool_names = _mutation_tool_names(mcp)
+    for tool in tools:
+        if len(tool.name) > _MCP_MAX_TOOL_NAME_LENGTH:
+            mcp.local_provider.remove_tool(tool.name)
+        else:
+            _classify_read_or_write(mcp, tool, mutation_tool_names)
 
 class AuthFromQueryParam:
     def __init__(self, app: ASGIApp):
@@ -222,9 +290,8 @@ class _LazyMCPApp:
             ),
         )
         # Drop tools whose names exceed 64 characters (MCP protocol limit)
-        for tool in await mcp.list_tools():
-            if len(tool.name) > _MCP_MAX_TOOL_NAME_LENGTH:
-                mcp.local_provider.remove_tool(tool.name)
+        # and tag/annotate the rest as read or write.
+        _finalize_tools(mcp, await mcp.list_tools())
         app = mcp.http_app(
             middleware=[Middleware(AuthFromQueryParam)],
             stateless_http=True,
@@ -308,10 +375,7 @@ if __name__ == "__main__":
             forward_bearer_token=True,
             name=os.environ["API_MCP_SERVER_NAME"],
         )
-        tools = asyncio.run(mcp.list_tools())
-        for tool in tools:
-            if len(tool.name) > _MCP_MAX_TOOL_NAME_LENGTH:
-                mcp.local_provider.remove_tool(tool.name)
+        _finalize_tools(mcp, asyncio.run(mcp.list_tools()))
         mcp.run()
     else:
         import uvicorn
