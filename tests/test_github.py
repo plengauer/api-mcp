@@ -104,7 +104,7 @@ def _is_api_mcp_repository(repository):
 
 
 async def _call_rest_repository_tool(client, tool_names):
-    tool_name = "searchrepos"
+    tool_name = "search_repos"
     if tool_name not in tool_names:
         raise AssertionError(f"Missing REST tool: {tool_name}")
     result = await client.call_tool_mcp(
