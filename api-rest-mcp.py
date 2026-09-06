@@ -3,7 +3,8 @@ from contextvars import ContextVar
 from urllib.parse import parse_qs
 import httpx
 from fastmcp import FastMCP
-from fastmcp.server.providers.openapi import RouteMap, MCPType
+from fastmcp.server.providers.openapi import RouteMap, MCPType, OpenAPITool
+from mcp.types import ToolAnnotations
 from starlette.middleware import Middleware
 from starlette.types import ASGIApp, Receive, Scope, Send
 
@@ -52,18 +53,42 @@ def fix_spec(obj):
         return [fix_spec(item) for item in obj]
     return obj
 
-# Tag every generated tool as "read" (GET) or "write" (everything that can
-# mutate state) based on the HTTP method of the underlying route, so MCP
-# clients that support tag-based tool filtering can distinguish read-only
-# calls from ones with side effects. This keeps every route a plain TOOL -
-# no existing tool is renamed, removed, or turned into a resource.
-READ_METHODS = ["GET"]
+# Classify every generated tool as "read" or "write" based on the HTTP method
+# of the underlying route, so MCP clients can distinguish read-only calls from
+# ones with side effects. This keeps every route a plain TOOL - no existing
+# tool is renamed, removed, or turned into a resource.
+#
+# The classification is published two ways:
+#   * as MCP tool annotations (readOnlyHint / destructiveHint / idempotentHint),
+#     which is the standard, client-visible mechanism, and
+#   * as FastMCP tags, for clients that support tag-based tool filtering.
+# Tags alone are FastMCP-specific metadata (they only show up under
+# _meta.fastmcp.tags) and are ignored by MCP clients, so without the
+# annotations the read/write split is invisible in tools/list.
+READ_METHODS = ["GET", "HEAD", "OPTIONS", "TRACE"]
 WRITE_METHODS = ["POST", "PUT", "PATCH", "DELETE"]
+# Only meaningful for write methods: DELETE removes and PUT replaces, whereas
+# POST/PATCH create or amend.
+DESTRUCTIVE_METHODS = {"PUT", "DELETE"}
+# Repeating the call has the same effect as making it once.
+IDEMPOTENT_METHODS = {"GET", "HEAD", "OPTIONS", "TRACE", "PUT", "DELETE"}
 
 route_maps = [
     RouteMap(methods=READ_METHODS, mcp_type=MCPType.TOOL, mcp_tags={"read"}),
     RouteMap(methods=WRITE_METHODS, mcp_type=MCPType.TOOL, mcp_tags={"write"}),
 ]
+
+def annotate_read_or_write(route, component):
+    if not isinstance(component, OpenAPITool):
+        return
+    method = route.method.upper()
+    read_only = method in READ_METHODS
+    component.annotations = ToolAnnotations(
+        readOnlyHint = read_only,
+        destructiveHint = (not read_only) and method in DESTRUCTIVE_METHODS,
+        idempotentHint = method in IDEMPOTENT_METHODS,
+        openWorldHint = True,
+    )
 
 mcp = FastMCP.from_openapi(
     openapi_spec = fix_spec(httpx.get(os.environ["API_MCP_OPENAPI_SPEC_URL"], follow_redirects=True).raise_for_status().json()),
@@ -74,6 +99,7 @@ mcp = FastMCP.from_openapi(
     ),
     name = os.environ["API_MCP_SERVER_NAME"],
     route_maps = route_maps,
+    mcp_component_fn = annotate_read_or_write,
 )
 
 if __name__ == "__main__":
