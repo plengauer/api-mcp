@@ -110,7 +110,7 @@ mcp = FastMCP.from_openapi(
 )
 
 @mcp.tool
-GET(path_and_query: str):
+def GET(path_and_query: str):
     response = httpx.get(os.environ["API_MCP_BASE_URL"] + "/" + path_and_query)
     return {
         status_code: response.status_code
@@ -118,7 +118,7 @@ GET(path_and_query: str):
     }
 
 @mcp.tool
-POST(path_and_query: str, body: str, body_content_type: str):
+def POST(path_and_query: str, body: str, body_content_type: str):
     response = httpx.post(os.environ["API_MCP_BASE_URL"] + "/" + path_and_query, content=body, headers={ "Content-Type": body_content_type })
     return {
         status_code: response.status_code
@@ -126,7 +126,7 @@ POST(path_and_query: str, body: str, body_content_type: str):
     }
 
 @mcp.tool
-PUT(path_and_query: str, body: str, body_content_type: str):
+def PUT(path_and_query: str, body: str, body_content_type: str):
     response = httpx.put(os.environ["API_MCP_BASE_URL"] + "/" + path_and_query, content=body, headers={ "Content-Type": body_content_type })
     return {
         status_code: response.status_code
@@ -134,7 +134,7 @@ PUT(path_and_query: str, body: str, body_content_type: str):
     }
 
 @mcp.tool
-PATCH(path_and_query: str, body: str, body_content_type: str):
+def PATCH(path_and_query: str, body: str, body_content_type: str):
     response = httpx.patch(os.environ["API_MCP_BASE_URL"] + "/" + path_and_query, content=body, headers={ "Content-Type": body_content_type })
     return {
         status_code: response.status_code
@@ -142,7 +142,7 @@ PATCH(path_and_query: str, body: str, body_content_type: str):
     }
 
 @mcp.tool
-DELETE(path_and_query: str):
+def DELETE(path_and_query: str):
     response = httpx.delete(os.environ["API_MCP_BASE_URL"] + "/" + path_and_query)
     return {
         status_code: response.status_code
