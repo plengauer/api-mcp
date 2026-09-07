@@ -109,6 +109,46 @@ mcp = FastMCP.from_openapi(
     mcp_component_fn = annotate_read_or_write,
 )
 
+@mcp.tool
+GET(path_and_query: str):
+    response = httpx.get(os.environ["API_MCP_BASE_URL"] + "/" + path_and_query)
+    return {
+        status_code: response.status_code
+        text: response.content
+    }
+
+@mcp.tool
+POST(path_and_query: str, body: str, body_content_type: str):
+    response = httpx.post(os.environ["API_MCP_BASE_URL"] + "/" + path_and_query, content=body, headers={ "Content-Type": body_content_type })
+    return {
+        status_code: response.status_code
+        body: response.content
+    }
+
+@mcp.tool
+PUT(path_and_query: str, body: str, body_content_type: str):
+    response = httpx.put(os.environ["API_MCP_BASE_URL"] + "/" + path_and_query, content=body, headers={ "Content-Type": body_content_type })
+    return {
+        status_code: response.status_code
+        body: response.content
+    }
+
+@mcp.tool
+PATCH(path_and_query: str, body: str, body_content_type: str):
+    response = httpx.patch(os.environ["API_MCP_BASE_URL"] + "/" + path_and_query, content=body, headers={ "Content-Type": body_content_type })
+    return {
+        status_code: response.status_code
+        body: response.content
+    }
+
+@mcp.tool
+DELETE(path_and_query: str):
+    response = httpx.delete(os.environ["API_MCP_BASE_URL"] + "/" + path_and_query)
+    return {
+        status_code: response.status_code
+        body: response.content
+    }
+
 if __name__ == "__main__":
     mode = os.environ.get("API_MCP_MODE", "http")
     if mode == "stdio":
