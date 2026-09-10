@@ -85,29 +85,103 @@ route_maps = [
     RouteMap(methods=WRITE_METHODS, mcp_type=MCPType.TOOL, mcp_tags={"write"}),
 ]
 
-def annotate_read_or_write(route, component):
-    if not isinstance(component, OpenAPITool):
-        return
-    method = route.method.upper()
+def method_annotations(method):
     read_only = method in READ_METHODS
-    component.annotations = ToolAnnotations(
+    return ToolAnnotations(
         readOnlyHint = read_only,
         destructiveHint = not read_only,
         idempotentHint = method in IDEMPOTENT_METHODS,
         openWorldHint = True,
     )
 
+def annotate_read_or_write(route, component):
+    if not isinstance(component, OpenAPITool):
+        return
+    component.annotations = method_annotations(route.method.upper())
+
+# Shared with the manual, method-named tools below so raw fallback calls go
+# through the same base URL resolution and DynamicAuth authorization as
+# every generated tool.
+raw_client = httpx.AsyncClient(
+    base_url = os.environ["API_MCP_BASE_URL"],
+    auth = DynamicAuth(),
+    follow_redirects = True,
+)
+
 mcp = FastMCP.from_openapi(
     openapi_spec = fix_spec(httpx.get(os.environ["API_MCP_OPENAPI_SPEC_URL"], follow_redirects=True).raise_for_status().json()),
-    client = httpx.AsyncClient(
-        base_url = os.environ["API_MCP_BASE_URL"],
-        auth = DynamicAuth(),
-        follow_redirects = True
-    ),
+    client = raw_client,
     name = os.environ["API_MCP_SERVER_NAME"],
     route_maps = route_maps,
     mcp_component_fn = annotate_read_or_write,
 )
+
+# Manual, method-named tools that can call ANY path on this API, in addition
+# to the tools generated above from the OpenAPI spec. These exist purely as a
+# fallback for endpoints the spec omits or describes incorrectly: a generated
+# tool is always better typed (named for the operation, with typed/validated
+# parameters instead of a raw path-and-query string and a raw body), so every
+# one of these tools is documented to be a last resort. They reuse raw_client
+# so the request still gets the right base URL joining and Authorization
+# header via DynamicAuth.
+FALLBACK_NOTE = (
+    "Only use this if there is no better, more specific tool already "
+    "available for this operation - prefer a generated tool whenever one "
+    "exists for the endpoint you need, and fall back to this raw call only "
+    "when none of them fit."
+)
+
+def _response_result(response: httpx.Response) -> dict:
+    return {
+        "status_code": response.status_code,
+        "headers": dict(response.headers),
+        "body": response.text,
+    }
+
+@mcp.tool(
+    description=f"Make a raw HTTP GET request to this API. {FALLBACK_NOTE}",
+    tags={"read"},
+    annotations=method_annotations("GET"),
+)
+async def GET(path_and_query: str):
+    response = await raw_client.get(path_and_query)
+    return _response_result(response)
+
+@mcp.tool(
+    description=f"Make a raw HTTP POST request to this API. {FALLBACK_NOTE}",
+    tags={"write"},
+    annotations=method_annotations("POST"),
+)
+async def POST(path_and_query: str, body: str, body_content_type: str = "application/json"):
+    response = await raw_client.post(path_and_query, content=body, headers={"Content-Type": body_content_type})
+    return _response_result(response)
+
+@mcp.tool(
+    description=f"Make a raw HTTP PUT request to this API. {FALLBACK_NOTE}",
+    tags={"write"},
+    annotations=method_annotations("PUT"),
+)
+async def PUT(path_and_query: str, body: str, body_content_type: str = "application/json"):
+    response = await raw_client.put(path_and_query, content=body, headers={"Content-Type": body_content_type})
+    return _response_result(response)
+
+@mcp.tool(
+    description=f"Make a raw HTTP PATCH request to this API. {FALLBACK_NOTE}",
+    tags={"write"},
+    annotations=method_annotations("PATCH"),
+)
+async def PATCH(path_and_query: str, body: str, body_content_type: str = "application/json"):
+    response = await raw_client.patch(path_and_query, content=body, headers={"Content-Type": body_content_type})
+    return _response_result(response)
+
+@mcp.tool(
+    description=f"Make a raw HTTP DELETE request to this API. {FALLBACK_NOTE}",
+    tags={"write"},
+    annotations=method_annotations("DELETE"),
+)
+async def DELETE(path_and_query: str):
+    response = await raw_client.delete(path_and_query)
+    return _response_result(response)
 
 if __name__ == "__main__":
     mode = os.environ.get("API_MCP_MODE", "http")
