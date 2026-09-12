@@ -106,6 +106,7 @@ raw_client = httpx2.AsyncClient(
     base_url = os.environ["API_MCP_BASE_URL"],
     auth = DynamicAuth(),
     follow_redirects = True,
+    timeout = 60 * 3,
 )
 
 mcp = FastMCP.from_openapi(
