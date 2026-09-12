@@ -1,7 +1,7 @@
 import os
 from contextvars import ContextVar
 from urllib.parse import parse_qs
-import httpx
+import httpx2
 from fastmcp import FastMCP
 from fastmcp.server.providers.openapi import RouteMap, MCPType, OpenAPITool
 from mcp.types import ToolAnnotations
@@ -30,9 +30,9 @@ class AuthFromHeaderOrQueryParam:
             authorization_var.set(token)
         await self.app(scope, receive, send)
 
-class DynamicAuth(httpx.Auth):
+class DynamicAuth(httpx2.Auth):
     def auth_flow(self, request):
-        base = httpx.URL(os.environ["API_MCP_BASE_URL"])
+        base = httpx2.URL(os.environ["API_MCP_BASE_URL"])
         if request.url.scheme == base.scheme and request.url.host == base.host and request.url.port == base.port:
             token = authorization_var.get() or os.environ.get("HTTP_AUTHORIZATION", "")
             if token:
@@ -102,14 +102,14 @@ def annotate_read_or_write(route, component):
 # Shared with the manual, method-named tools below so raw fallback calls go
 # through the same base URL resolution and DynamicAuth authorization as
 # every generated tool.
-raw_client = httpx.AsyncClient(
+raw_client = httpx2.AsyncClient(
     base_url = os.environ["API_MCP_BASE_URL"],
     auth = DynamicAuth(),
     follow_redirects = True,
 )
 
 mcp = FastMCP.from_openapi(
-    openapi_spec = fix_spec(httpx.get(os.environ["API_MCP_OPENAPI_SPEC_URL"], follow_redirects=True).raise_for_status().json()),
+    openapi_spec = fix_spec(httpx2.get(os.environ["API_MCP_OPENAPI_SPEC_URL"], follow_redirects=True).raise_for_status().json()),
     client = raw_client,
     name = os.environ["API_MCP_SERVER_NAME"],
     route_maps = route_maps,
@@ -131,7 +131,7 @@ FALLBACK_NOTE = (
     "when none of them fit."
 )
 
-def _response_result(response: httpx.Response) -> dict:
+def _response_result(response: httpx2.Response) -> dict:
     return {
         "status_code": response.status_code,
         "headers": dict(response.headers),
