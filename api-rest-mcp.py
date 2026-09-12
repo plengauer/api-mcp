@@ -143,7 +143,7 @@ def _response_result(response: httpx.Response) -> dict:
     tags={"read"},
     annotations=method_annotations("GET"),
 )
-async def GET(path_and_query: str):
+async def HTTP_GET(path_and_query: str):
     response = await raw_client.get(path_and_query)
     return _response_result(response)
 
@@ -152,7 +152,7 @@ async def GET(path_and_query: str):
     tags={"write"},
     annotations=method_annotations("POST"),
 )
-async def POST(path_and_query: str, body: str, body_content_type: str = "application/json"):
+async def HTTP_POST(path_and_query: str, body: str, body_content_type: str = "application/json"):
     response = await raw_client.post(path_and_query, content=body, headers={"Content-Type": body_content_type})
     return _response_result(response)
 
@@ -161,7 +161,7 @@ async def POST(path_and_query: str, body: str, body_content_type: str = "applica
     tags={"write"},
     annotations=method_annotations("PUT"),
 )
-async def PUT(path_and_query: str, body: str, body_content_type: str = "application/json"):
+async def HTTP_PUT(path_and_query: str, body: str, body_content_type: str = "application/json"):
     response = await raw_client.put(path_and_query, content=body, headers={"Content-Type": body_content_type})
     return _response_result(response)
 
@@ -170,7 +170,7 @@ async def PUT(path_and_query: str, body: str, body_content_type: str = "applicat
     tags={"write"},
     annotations=method_annotations("PATCH"),
 )
-async def PATCH(path_and_query: str, body: str, body_content_type: str = "application/json"):
+async def HTTP_PATCH(path_and_query: str, body: str, body_content_type: str = "application/json"):
     response = await raw_client.patch(path_and_query, content=body, headers={"Content-Type": body_content_type})
     return _response_result(response)
 
@@ -179,7 +179,7 @@ async def PATCH(path_and_query: str, body: str, body_content_type: str = "applic
     tags={"write"},
     annotations=method_annotations("DELETE"),
 )
-async def DELETE(path_and_query: str):
+async def HTTP_DELETE(path_and_query: str):
     response = await raw_client.delete(path_and_query)
     return _response_result(response)
 
