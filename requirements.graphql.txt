@@ -1,4 +1,4 @@
-graphql-mcp==2.1.5
+graphql-mcp==2.3.0
 opentelemetry-distro==0.65b0
 opentelemetry-exporter-otlp==1.44.0
 opentelemetry-resourcedetector-docker==0.4.0
