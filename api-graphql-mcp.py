@@ -1,6 +1,7 @@
 import asyncio
 import os
 import inspect
+import json
 
 # --- Patches for graphql_mcp to handle huge schemas like GitHub ---
 # Without these, GraphQLMCP.from_remote_url() never returns on the GitHub
@@ -364,6 +365,41 @@ class _LazyMCPApp:
 
         await self._app(scope, receive, send)
 
+class _LogErrorBodies:
+    """Minimal ASGI wrapper: on status >= 400 (or no response) print request/response bodies as one JSON line."""
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        req, res, status = bytearray(), bytearray(), None
+
+        async def rcv():
+            m = await receive()
+            if m["type"] == "http.request":
+                req.extend(m.get("body", b"")); del req[8192:]
+            return m
+
+        async def snd(m):
+            nonlocal status
+            if m["type"] == "http.response.start":
+                status = m["status"]
+            elif m["type"] == "http.response.body":
+                res.extend(m.get("body", b"")); del res[8192:]
+            await send(m)
+
+        try:
+            await self.app(scope, rcv, snd)
+        finally:
+            if status is None or status == 400:
+                print(json.dumps({
+                    "severity": "ERROR",
+                    "message": f"{scope['method']} {scope['path']} -> {status}",
+                    "protocol_version": dict(scope["headers"]).get(b"mcp-protocol-version", b"").decode(),
+                    "request_body": req.decode("utf-8", "replace"),
+                    "response_body": res.decode("utf-8", "replace"),
+                }), flush=True)
 
 if __name__ == "__main__":
     mode = os.environ.get("API_MCP_MODE", "http")
@@ -379,4 +415,4 @@ if __name__ == "__main__":
         mcp.run()
     else:
         import uvicorn
-        uvicorn.run(_LazyMCPApp(), host="0.0.0.0", port=8080)
+        uvicorn.run(_LogErrorBodies(_LazyMCPApp()), host="0.0.0.0", port=8080)
