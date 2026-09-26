@@ -9,11 +9,25 @@ RUN pip install --no-cache-dir -r requirements.graphql.txt \
 COPY api-graphql-mcp.py .
 
 # Optional GraphQL introspection result baked in at build time (CI writes
-# graphql-schema/introspection.json for GitHub). The directory always exists
-# in the build context, the file may not; without it the server introspects
-# live on the first request instead.
-COPY graphql-schema/ ./graphql-schema/
-ARG API_MCP_GRAPHQL_SCHEMA_PATH=/app/graphql-schema/introspection.json
+# graphql-schema/introspection.json for GitHub). API_MCP_GRAPHQL_SCHEMA_PATH is
+# the full path of the file inside the image and must live under /app/, e.g.
+# /app/graphql-schema/introspection.json. Only that one file is copied in,
+# taken from the same path relative to the build context
+# (graphql-schema/introspection.json). Empty means no baked schema; the server
+# then introspects live on the first request instead.
+ARG API_MCP_GRAPHQL_SCHEMA_PATH=""
+RUN --mount=type=bind,target=/tmp/build-context \
+    if [ -n "${API_MCP_GRAPHQL_SCHEMA_PATH}" ]; then \
+        case "${API_MCP_GRAPHQL_SCHEMA_PATH}" in \
+            /app/*) ;; \
+            *) echo "API_MCP_GRAPHQL_SCHEMA_PATH=${API_MCP_GRAPHQL_SCHEMA_PATH} must be a full path under /app/" >&2; exit 1 ;; \
+        esac; \
+        src="/tmp/build-context/${API_MCP_GRAPHQL_SCHEMA_PATH#/app/}"; \
+        if [ ! -f "${src}" ]; then \
+            echo "API_MCP_GRAPHQL_SCHEMA_PATH=${API_MCP_GRAPHQL_SCHEMA_PATH}: ${API_MCP_GRAPHQL_SCHEMA_PATH#/app/} is not a file in the build context" >&2; exit 1; \
+        fi; \
+        mkdir -p "$(dirname "${API_MCP_GRAPHQL_SCHEMA_PATH}")" && cp "${src}" "${API_MCP_GRAPHQL_SCHEMA_PATH}"; \
+    fi
 ENV API_MCP_GRAPHQL_SCHEMA_PATH=${API_MCP_GRAPHQL_SCHEMA_PATH}
 
 ARG API_MCP_BASE_URL
