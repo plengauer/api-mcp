@@ -6,7 +6,7 @@ on:
       - Autobackport
       - Autotriage
       - Autoversion
-      - Build and Publish MCP Containers
+      - CI
       - Claude
       - CodeQL
       - Copilot
