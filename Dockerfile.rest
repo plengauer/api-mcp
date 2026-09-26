@@ -8,11 +8,23 @@ RUN pip install --no-cache-dir -r requirements.rest.txt \
 
 COPY api-rest-mcp.py .
 
-ARG API_MCP_OPENAPI_SPEC_URL
+# Optional OpenAPI spec, downloaded and fixed by CI
+# (scripts/prepare-openapi-spec.py) into openapi/ in the build context. The
+# directory always exists (openapi/.gitkeep), so this COPY works whether or
+# not a spec was prepared for this API.
+COPY openapi/ ./openapi/
+
+# Path of the baked spec inside the container, e.g. /app/openapi/openapi.json.
+# Empty means this API has no spec and the server only exposes raw HTTP tools.
+ARG API_MCP_OPENAPI_SPEC_PATH=""
 ARG API_MCP_BASE_URL
 ARG API_MCP_SERVER_NAME
 
-ENV API_MCP_OPENAPI_SPEC_URL=${API_MCP_OPENAPI_SPEC_URL}
+RUN if [ -n "${API_MCP_OPENAPI_SPEC_PATH}" ] && [ ! -f "${API_MCP_OPENAPI_SPEC_PATH}" ]; then \
+        echo "API_MCP_OPENAPI_SPEC_PATH=${API_MCP_OPENAPI_SPEC_PATH} does not exist in the image" >&2; exit 1; \
+    fi
+
+ENV API_MCP_OPENAPI_SPEC_PATH=${API_MCP_OPENAPI_SPEC_PATH}
 ENV API_MCP_BASE_URL=${API_MCP_BASE_URL}
 ENV API_MCP_SERVER_NAME=${API_MCP_SERVER_NAME}
 ENV OTEL_SERVICE_NAME="${API_MCP_SERVER_NAME} MCP"

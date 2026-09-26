@@ -3,13 +3,40 @@ import pytest
 from fastmcp import Client
 
 
+# Raw, method-named tools the REST server exposes INSTEAD of generated tools
+# when no OpenAPI spec was baked into the container.
+RAW_HTTP_TOOLS = {"HTTP_GET", "HTTP_POST", "HTTP_PUT", "HTTP_PATCH", "HTTP_DELETE"}
+
+
+def _is_raw_http_only(tool_names):
+    return set(tool_names) == RAW_HTTP_TOOLS
+
+
 @pytest.mark.asyncio
 async def test_mcp_lists_tools():
     async with Client(os.environ["MCP_URL"]) as client:
         tools = await client.list_tools()
-    assert len(tools) >= 50
+    if not _is_raw_http_only(tool.name for tool in tools):
+        assert len(tools) >= 50
     for tool in tools:
         assert len(tool.name) <= 64
+
+
+@pytest.mark.asyncio
+async def test_mcp_raw_http_tools_only_without_schema():
+    """Raw HTTP_* tools are all-or-nothing.
+
+    A REST server with a baked OpenAPI spec exposes only the generated tools;
+    one without a spec exposes only the raw HTTP_* tools. Any mix means the
+    schema decision at startup is broken.
+    """
+    async with Client(os.environ["MCP_URL"]) as client:
+        tools = await client.list_tools()
+    names = {tool.name for tool in tools}
+    raw = names & RAW_HTTP_TOOLS
+    assert not raw or names == RAW_HTTP_TOOLS, (
+        f"raw HTTP tools {sorted(raw)} are mixed with {len(names - RAW_HTTP_TOOLS)} other tool(s)"
+    )
 
 
 def _hint(annotations, name):
