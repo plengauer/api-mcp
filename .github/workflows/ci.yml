@@ -1,4 +1,4 @@
-name: Build and Publish MCP Containers
+name: CI
 
 on:
   push:
@@ -42,6 +42,22 @@ jobs:
         with:
           secrets_to_redact: ${{ github.token }}
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - id: openapi
+        if: matrix.type == 'rest' && matrix.openapi_spec_url
+        env:
+          OPENAPI_SPEC_URL: ${{ matrix.openapi_spec_url }}
+        run: |
+          python3 scripts/prepare-openapi-spec.py "$OPENAPI_SPEC_URL" ./openapi.json
+          echo "path=./openapi.json" >> "$GITHUB_OUTPUT"
+      - id: graphql_schema
+        if: matrix.type == 'graphql' && startsWith(matrix.base_url, 'https://api.github.com/')
+        env:
+          GRAPHQL_URL: ${{ matrix.base_url }}
+          GRAPHQL_TOKEN: ${{ github.token }}
+        run: |
+          pip install -r requirements.graphql.txt
+          python3 .github/scripts/fetch-graphql-schema.py graphql-schema.json
+          echo "path=graphql-schema.json" >> "$GITHUB_OUTPUT"
       - id: config
         run: |
           if [ "${{ matrix.type }}" = "graphql" ]; then
@@ -50,6 +66,7 @@ jobs:
               echo 'build_args<<EOF'
               echo 'API_MCP_SERVER_NAME=${{ matrix.server_name }}'
               echo 'API_MCP_BASE_URL=${{ matrix.base_url }}'
+              echo 'API_MCP_GRAPHQL_SCHEMA_SOURCE=${{ steps.graphql_schema.outputs.path }}'
               echo 'EOF'
             } >> $GITHUB_OUTPUT
           else
@@ -58,7 +75,7 @@ jobs:
               echo 'build_args<<EOF'
               echo 'API_MCP_SERVER_NAME=${{ matrix.server_name }}'
               echo 'API_MCP_BASE_URL=${{ matrix.base_url }}'
-              echo 'API_MCP_OPENAPI_SPEC_URL=${{ matrix.openapi_spec_url }}'
+              echo 'API_MCP_OPENAPI_SPEC_SOURCE=${{ steps.openapi.outputs.path }}'
               echo 'EOF'
             } >> $GITHUB_OUTPUT
           fi
@@ -117,6 +134,8 @@ jobs:
       - env:
           MCP_URL: http://localhost:8080/mcp?authorization=Bearer+${{ secrets.GITHUB_TOKEN }}
         run: pytest tests/test_mcp.py -v
+      - if: matrix.type == 'graphql' && startsWith(matrix.base_url, 'https://api.github.com/')
+        run: docker logs mcp-test 2>&1 | grep -F 'MCP built eagerly from baked schema'
       - if: always()
         run: docker logs mcp-test && docker stop mcp-test
     permissions:

@@ -2,11 +2,11 @@ FROM python:3.12.13-slim
 
 WORKDIR /app
 
-COPY requirements.graphql.txt .
-RUN pip install --no-cache-dir -r requirements.graphql.txt \
-    && opentelemetry-bootstrap -a install
+COPY requirements.graphql.txt api-graphql-mcp.py .
+RUN pip install --no-cache-dir -r requirements.graphql.txt && opentelemetry-bootstrap -a install
 
-COPY api-graphql-mcp.py .
+COPY graphql-schema.json .
+ENV API_MCP_GRAPHQL_SCHEMA_PATH=graphql-schema.json
 
 ARG API_MCP_BASE_URL
 ARG API_MCP_SERVER_NAME
