@@ -48,7 +48,7 @@ jobs:
           OPENAPI_SPEC_URL: ${{ matrix.openapi_spec_url }}
         run: |
           python3 scripts/prepare-openapi-spec.py "$OPENAPI_SPEC_URL" openapi/openapi.json
-          echo "path=/app/openapi/openapi.json" >> "$GITHUB_OUTPUT"
+          echo "path=openapi/openapi.json" >> "$GITHUB_OUTPUT"
       - id: graphql_schema
         if: matrix.type == 'graphql' && startsWith(matrix.base_url, 'https://api.github.com/')
         env:
@@ -57,7 +57,7 @@ jobs:
         run: |
           pip install --quiet graphql-core==3.2.12
           python3 .github/scripts/fetch-graphql-schema.py graphql-schema/introspection.json
-          echo "path=/app/graphql-schema/introspection.json" >> "$GITHUB_OUTPUT"
+          echo "path=graphql-schema/introspection.json" >> "$GITHUB_OUTPUT"
       - id: config
         run: |
           if [ "${{ matrix.type }}" = "graphql" ]; then
@@ -66,7 +66,7 @@ jobs:
               echo 'build_args<<EOF'
               echo 'API_MCP_SERVER_NAME=${{ matrix.server_name }}'
               echo 'API_MCP_BASE_URL=${{ matrix.base_url }}'
-              echo 'API_MCP_GRAPHQL_SCHEMA_PATH=${{ steps.graphql_schema.outputs.path }}'
+              echo 'API_MCP_GRAPHQL_SCHEMA_SOURCE=${{ steps.graphql_schema.outputs.path }}'
               echo 'EOF'
             } >> $GITHUB_OUTPUT
           else
@@ -75,7 +75,7 @@ jobs:
               echo 'build_args<<EOF'
               echo 'API_MCP_SERVER_NAME=${{ matrix.server_name }}'
               echo 'API_MCP_BASE_URL=${{ matrix.base_url }}'
-              echo 'API_MCP_OPENAPI_SPEC_PATH=${{ steps.openapi.outputs.path }}'
+              echo 'API_MCP_OPENAPI_SPEC_SOURCE=${{ steps.openapi.outputs.path }}'
               echo 'EOF'
             } >> $GITHUB_OUTPUT
           fi

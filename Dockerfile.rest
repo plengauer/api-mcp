@@ -8,30 +8,17 @@ RUN pip install --no-cache-dir -r requirements.rest.txt \
 
 COPY api-rest-mcp.py .
 
-# Optional OpenAPI spec, downloaded and fixed by CI
-# (scripts/prepare-openapi-spec.py). API_MCP_OPENAPI_SPEC_PATH is the full path
-# of the spec file inside the image and must live under /app/, e.g.
-# /app/openapi/openapi.json. Only that one file is copied in, taken from the
-# same path relative to the build context (openapi/openapi.json). Empty means
-# this API has no spec and the server only exposes raw HTTP tools.
-ARG API_MCP_OPENAPI_SPEC_PATH=""
-RUN --mount=type=bind,target=/tmp/build-context \
-    if [ -n "${API_MCP_OPENAPI_SPEC_PATH}" ]; then \
-        case "${API_MCP_OPENAPI_SPEC_PATH}" in \
-            /app/*) ;; \
-            *) echo "API_MCP_OPENAPI_SPEC_PATH=${API_MCP_OPENAPI_SPEC_PATH} must be a full path under /app/" >&2; exit 1 ;; \
-        esac; \
-        src="/tmp/build-context/${API_MCP_OPENAPI_SPEC_PATH#/app/}"; \
-        if [ ! -f "${src}" ]; then \
-            echo "API_MCP_OPENAPI_SPEC_PATH=${API_MCP_OPENAPI_SPEC_PATH}: ${API_MCP_OPENAPI_SPEC_PATH#/app/} is not a file in the build context" >&2; exit 1; \
-        fi; \
-        mkdir -p "$(dirname "${API_MCP_OPENAPI_SPEC_PATH}")" && cp "${src}" "${API_MCP_OPENAPI_SPEC_PATH}"; \
-    fi
+# Optional OpenAPI spec (prepared by CI via scripts/prepare-openapi-spec.py).
+# API_MCP_OPENAPI_SPEC_SOURCE is its path in the build context; only that file
+# is copied to /app/openapi.json. Unset means no spec (raw HTTP tools only).
+ARG API_MCP_OPENAPI_SPEC_SOURCE=""
+RUN --mount=type=bind,target=/context \
+    if [ -n "$API_MCP_OPENAPI_SPEC_SOURCE" ]; then cp "/context/$API_MCP_OPENAPI_SPEC_SOURCE" /app/openapi.json; fi
+ENV API_MCP_OPENAPI_SPEC_PATH=/app/openapi.json
 
 ARG API_MCP_BASE_URL
 ARG API_MCP_SERVER_NAME
 
-ENV API_MCP_OPENAPI_SPEC_PATH=${API_MCP_OPENAPI_SPEC_PATH}
 ENV API_MCP_BASE_URL=${API_MCP_BASE_URL}
 ENV API_MCP_SERVER_NAME=${API_MCP_SERVER_NAME}
 ENV OTEL_SERVICE_NAME="${API_MCP_SERVER_NAME} MCP"
