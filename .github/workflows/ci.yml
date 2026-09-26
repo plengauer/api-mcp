@@ -1,4 +1,4 @@
-name: Build and Publish MCP Containers
+name: CI
 
 on:
   push:
