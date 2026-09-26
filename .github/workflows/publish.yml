@@ -55,9 +55,9 @@ jobs:
           GRAPHQL_URL: ${{ matrix.base_url }}
           GRAPHQL_TOKEN: ${{ github.token }}
         run: |
-          pip install --quiet graphql-core==3.2.12
-          python3 .github/scripts/fetch-graphql-schema.py graphql-schema/introspection.json
-          echo "path=graphql-schema/introspection.json" >> "$GITHUB_OUTPUT"
+          pip install -r requirements.graphql.txt
+          python3 .github/scripts/fetch-graphql-schema.py graphql-schema.json
+          echo "path=graphql-schema.json" >> "$GITHUB_OUTPUT"
       - id: config
         run: |
           if [ "${{ matrix.type }}" = "graphql" ]; then
