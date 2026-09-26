@@ -102,6 +102,24 @@ def _patch_graphql_mcp():
         if f is not None:
             setattr(gs, fname, _safe_top(f))
 
+    # graphql_mcp only forwards the caller's bearer token when FastMCP hands the
+    # tool a Context, but the generated tools' signatures never declare one, so
+    # ctx is always None and nothing is forwarded. Read the current HTTP request
+    # directly instead (outside a request, e.g. stdio, this yields None and the
+    # client's base headers apply).
+    def _bearer_token_from_current_request(ctx=None):
+        try:
+            request = gs._get_http_request() if gs._get_http_request else None
+        except Exception:
+            return None
+        if request is None or not hasattr(request, "headers"):
+            return None
+        auth_header = request.headers.get("authorization", "")
+        if auth_header.startswith("Bearer "):
+            return auth_header[7:]
+        return None
+    gs._extract_bearer_token_from_context = _bearer_token_from_current_request
+
     def _build_selection_set_skip_required_args(
         graphql_type,
         max_depth=5,
@@ -244,6 +262,126 @@ class AuthFromQueryParam:
                 scope["headers"] = headers
         await self.app(scope, receive, send)
 
+def _http_app(mcp):
+    return mcp.http_app(
+        middleware=[Middleware(AuthFromQueryParam)],
+        stateless_http=True,
+    )
+
+
+async def _fetch_introspection(headers):
+    """Run the standard introspection query live against API_MCP_BASE_URL.
+
+    Same query and checks as graphql_mcp.remote.fetch_remote_schema, but it
+    returns the raw result so the MCP is built by the same code as for a baked
+    schema, and the token is used for this one request only instead of being
+    kept as a default header for every later tool call.
+    """
+    import aiohttp
+    from graphql import get_introspection_query
+
+    url = os.environ["API_MCP_BASE_URL"]
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            url,
+            json={"query": get_introspection_query()},
+            headers=headers,
+            timeout=aiohttp.ClientTimeout(total=30),
+        ) as response:
+            if response.status != 200:
+                raise Exception(
+                    f"Failed to fetch schema from {url}: {response.status} - {await response.text()}")
+            result = await response.json()
+    if "errors" in result:
+        raise Exception(f"GraphQL errors during introspection: {result['errors']}")
+    if "data" not in result:
+        raise Exception(f"No data in introspection response from {url}")
+    return result["data"]
+
+
+def _load_baked_introspection():
+    """Return the introspection result baked into the image, or None.
+
+    The path comes from API_MCP_GRAPHQL_SCHEMA_PATH. CI only produces the file
+    for APIs whose introspection it can run at build time (GitHub, with the
+    Actions token), so a missing file is expected and means "introspect live".
+    A file that exists but is unreadable is a broken build and fails loudly.
+
+    Accepts both the raw HTTP response shape ``{"data": {"__schema": ...}}``
+    and the bare ``{"__schema": ...}`` shape.
+    """
+    path = os.environ.get("API_MCP_GRAPHQL_SCHEMA_PATH", "")
+    if not path or not os.path.isfile(path):
+        return None
+    with open(path, encoding="utf-8") as f:
+        introspection = json.load(f)
+    if isinstance(introspection, dict) and isinstance(introspection.get("data"), dict):
+        introspection = introspection["data"]
+    if not isinstance(introspection, dict) or "__schema" not in introspection:
+        raise ValueError(f"{path} does not contain a GraphQL introspection result")
+    return introspection
+
+
+def _prime_remote_client(client, introspection):
+    """Feed the introspection result to the client's result-shaping cache.
+
+    RemoteGraphQLClient introspects the endpoint again on the first tool call
+    (with its base headers only) to learn which fields are lists, so it can
+    turn null lists into []. Without a base token GitHub rejects that request
+    and the client silently falls back to guessing. Answer it from the result
+    we already have instead: same parsing code, no network, no token.
+    """
+    async def _baked(query, variables=None):
+        return introspection
+
+    client._raw_execute_request = _baked
+    try:
+        # Nothing in here awaits real I/O, so drive the coroutine to completion
+        # directly; this works with or without a running event loop.
+        coro = client._introspect_schema()
+        try:
+            coro.send(None)
+        except StopIteration:
+            pass
+        else:
+            coro.close()
+            raise RuntimeError("priming the GraphQL client unexpectedly suspended")
+    finally:
+        del client._raw_execute_request
+
+
+def _build_mcp_from_introspection(introspection, headers):
+    """Build the MCP from an introspection result (baked or fetched live).
+
+    Mirrors graphql_mcp.server.build_remote_mcp (what from_remote_url calls),
+    minus the introspection request: tools execute remotely against
+    API_MCP_BASE_URL and forward the caller's bearer token. ``headers`` become
+    the client's default headers (only stdio sets any: HTTP_AUTHORIZATION).
+    """
+    from graphql import build_client_schema
+    from graphql_mcp.remote import RemoteGraphQLClient
+
+    url = os.environ["API_MCP_BASE_URL"]
+    schema = build_client_schema(introspection)
+    mcp = GraphQLMCP(
+        schema=schema,
+        register_tools=False,
+        name=os.environ["API_MCP_SERVER_NAME"],
+    )
+    client = RemoteGraphQLClient(url, dict(headers))
+    mcp.remote_client = client
+    _prime_remote_client(client, introspection)
+    graphql_mcp_server.add_tools_from_schema_with_remote(
+        schema, mcp, client,
+        forward_bearer_token=True,
+    )
+    return mcp
+
+
+def _log(message):
+    print(json.dumps({"severity": "INFO", "message": message}), flush=True)
+
+
 class _LazyMCPApp:
     """ASGI wrapper that lazily initializes the GraphQLMCP server on the first request.
 
@@ -278,25 +416,19 @@ class _LazyMCPApp:
         # thread, so there is no shared-state access across thread boundaries.
         token = self._extract_token(scope)
 
-        # Run the blocking schema-fetch + tool-registration in a thread so the
-        # event loop stays responsive while waiting for the remote introspection.
+        # Fetch asynchronously, then run the CPU-heavy tool registration in a
+        # thread so the event loop stays responsive.
+        introspection = await _fetch_introspection(
+            {"Authorization": f"Bearer {token}"} if token else {}
+        )
         loop = asyncio.get_running_loop()
         mcp = await loop.run_in_executor(
-            None,
-            lambda: GraphQLMCP.from_remote_url(
-                url=os.environ["API_MCP_BASE_URL"],
-                headers={"Authorization": f"Bearer {token}"} if token else {},
-                forward_bearer_token=True,
-                name=os.environ["API_MCP_SERVER_NAME"],
-            ),
+            None, lambda: _build_mcp_from_introspection(introspection, {})
         )
         # Drop tools whose names exceed 64 characters (MCP protocol limit)
         # and tag/annotate the rest as read or write.
         _finalize_tools(mcp, await mcp.list_tools())
-        app = mcp.http_app(
-            middleware=[Middleware(AuthFromQueryParam)],
-            stateless_http=True,
-        )
+        app = _http_app(mcp)
 
         # Drive the inner app's lifespan as a background task so its session
         # manager is up before we forward any requests to it.
@@ -403,16 +535,28 @@ class _LogErrorBodies:
 
 if __name__ == "__main__":
     mode = os.environ.get("API_MCP_MODE", "http")
+    introspection = _load_baked_introspection()
     if mode == "stdio":
         http_auth = os.environ.get("HTTP_AUTHORIZATION", "")
-        mcp = GraphQLMCP.from_remote_url(
-            url=os.environ["API_MCP_BASE_URL"],
-            headers={"Authorization": http_auth} if http_auth else {},
-            forward_bearer_token=True,
-            name=os.environ["API_MCP_SERVER_NAME"],
-        )
+        headers = {"Authorization": http_auth} if http_auth else {}
+        if introspection is not None:
+            mcp = _build_mcp_from_introspection(introspection, headers)
+        else:
+            mcp = _build_mcp_from_introspection(
+                asyncio.run(_fetch_introspection(headers)), headers
+            )
         _finalize_tools(mcp, asyncio.run(mcp.list_tools()))
         mcp.run()
     else:
         import uvicorn
-        uvicorn.run(_LogErrorBodies(_LazyMCPApp()), host="0.0.0.0", port=8080)
+        if introspection is not None:
+            # No token needed to build from the baked schema, so do it now:
+            # the first request then only pays for the request itself.
+            mcp = _build_mcp_from_introspection(introspection, {})
+            _finalize_tools(mcp, asyncio.run(mcp.list_tools()))
+            _log(f"MCP built eagerly from baked schema {os.environ['API_MCP_GRAPHQL_SCHEMA_PATH']}")
+            app = _http_app(mcp)
+        else:
+            _log("No baked schema, MCP will be built from live introspection on the first request")
+            app = _LazyMCPApp()
+        uvicorn.run(_LogErrorBodies(app), host="0.0.0.0", port=int(os.environ.get("PORT", "8080")))

@@ -8,6 +8,14 @@ RUN pip install --no-cache-dir -r requirements.graphql.txt \
 
 COPY api-graphql-mcp.py .
 
+# Optional GraphQL introspection result baked in at build time (CI writes
+# graphql-schema/introspection.json for GitHub). The directory always exists
+# in the build context, the file may not; without it the server introspects
+# live on the first request instead.
+COPY graphql-schema/ ./graphql-schema/
+ARG API_MCP_GRAPHQL_SCHEMA_PATH=/app/graphql-schema/introspection.json
+ENV API_MCP_GRAPHQL_SCHEMA_PATH=${API_MCP_GRAPHQL_SCHEMA_PATH}
+
 ARG API_MCP_BASE_URL
 ARG API_MCP_SERVER_NAME
 
