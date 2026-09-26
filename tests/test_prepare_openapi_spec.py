@@ -51,3 +51,41 @@ def test_main_rejects_non_openapi_documents(tmp_path):
     output = tmp_path / "openapi.json"
     assert _load_script().main(["prepare", source.as_uri(), str(output)]) == 1
     assert not output.exists()
+
+
+def test_download_sends_explicit_user_agent_and_retries(monkeypatch):
+    import io
+    import urllib.error
+
+    module = _load_script()
+    seen = []
+
+    def fake_urlopen(request, timeout):
+        seen.append(request)
+        if len(seen) < 3:
+            raise urllib.error.HTTPError(request.full_url, 503, "busy", {}, None)
+        return io.BytesIO(json.dumps(SPEC).encode())
+
+    monkeypatch.setattr(module.urllib.request, "urlopen", fake_urlopen)
+    assert module.download_spec("https://example.invalid/spec.json", sleep=lambda _: None) == SPEC
+    assert len(seen) == 3
+    assert seen[0].get_header("User-agent", "").startswith("api-mcp-ci")
+    assert seen[0].get_header("Accept") == "application/json"
+
+
+def test_download_does_not_retry_client_errors(monkeypatch):
+    import urllib.error
+
+    import pytest
+
+    module = _load_script()
+    calls = []
+
+    def fake_urlopen(request, timeout):
+        calls.append(request)
+        raise urllib.error.HTTPError(request.full_url, 403, "Forbidden", {}, None)
+
+    monkeypatch.setattr(module.urllib.request, "urlopen", fake_urlopen)
+    with pytest.raises(urllib.error.HTTPError):
+        module.download_spec("https://example.invalid/spec.json", sleep=lambda _: None)
+    assert len(calls) == 1

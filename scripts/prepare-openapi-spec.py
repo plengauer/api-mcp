@@ -10,7 +10,17 @@ Only uses the Python standard library so it runs on a plain CI runner.
 """
 import json
 import sys
+import time
+import urllib.error
 import urllib.request
+
+# Some spec hosts (e.g. api.apis.guru) reject urllib's default
+# "Python-urllib/x.y" User-Agent with 403, so send an explicit one.
+HEADERS = {
+    "Accept": "application/json",
+    "User-Agent": "api-mcp-ci (+https://github.com/plengauer/api-mcp)",
+}
+ATTEMPTS = 3
 
 
 def fix_spec(obj):
@@ -35,10 +45,25 @@ def fix_spec(obj):
     return obj
 
 
-def download_spec(url):
-    request = urllib.request.Request(url, headers={"Accept": "application/json"})
-    with urllib.request.urlopen(request, timeout=120) as response:
-        return json.load(response)
+def _is_retryable(error):
+    if isinstance(error, urllib.error.HTTPError):
+        return error.code == 429 or error.code >= 500
+    return isinstance(error, (urllib.error.URLError, TimeoutError, ConnectionError))
+
+
+def download_spec(url, attempts=ATTEMPTS, sleep=time.sleep):
+    """Download and parse a JSON spec, retrying 429/5xx and network errors."""
+    for attempt in range(1, attempts + 1):
+        try:
+            request = urllib.request.Request(url, headers=HEADERS)
+            with urllib.request.urlopen(request, timeout=120) as response:
+                return json.load(response)
+        except Exception as error:
+            if attempt == attempts or not _is_retryable(error):
+                raise
+            delay = 2 ** attempt
+            print(f"attempt {attempt}/{attempts} to download {url} failed ({error}), retrying in {delay}s", file=sys.stderr)
+            sleep(delay)
 
 
 def main(argv):
