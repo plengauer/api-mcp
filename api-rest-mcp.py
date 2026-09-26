@@ -98,8 +98,9 @@ raw_client = httpx2.AsyncClient(
 
 # The OpenAPI spec is optional. When the API has one, CI downloads it, applies
 # every spec fix (see scripts/prepare-openapi-spec.py) and bakes the result
-# into the container; API_MCP_OPENAPI_SPEC_PATH points at it. Reading it from
-# disk keeps the download and the fixing off the (scale-to-zero) cold start.
+# into the container; API_MCP_OPENAPI_SPEC_PATH points at it (the file is
+# absent for APIs without a spec). Reading it from disk keeps the download and
+# the fixing off the (scale-to-zero) cold start.
 OPENAPI_SPEC_PATH = os.environ.get("API_MCP_OPENAPI_SPEC_PATH", "")
 
 def load_openapi_spec(path):
@@ -166,7 +167,7 @@ def register_raw_http_tools(mcp):
         response = await raw_client.delete(path_and_query)
         return _response_result(response)
 
-if OPENAPI_SPEC_PATH:
+if OPENAPI_SPEC_PATH and os.path.isfile(OPENAPI_SPEC_PATH):
     mcp = FastMCP.from_openapi(
         openapi_spec = load_openapi_spec(OPENAPI_SPEC_PATH),
         client = raw_client,
