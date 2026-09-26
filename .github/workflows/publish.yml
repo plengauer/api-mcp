@@ -47,8 +47,8 @@ jobs:
         env:
           OPENAPI_SPEC_URL: ${{ matrix.openapi_spec_url }}
         run: |
-          python3 scripts/prepare-openapi-spec.py "$OPENAPI_SPEC_URL" openapi/openapi.json
-          echo "path=openapi/openapi.json" >> "$GITHUB_OUTPUT"
+          python3 scripts/prepare-openapi-spec.py "$OPENAPI_SPEC_URL" ./openapi.json
+          echo "path=./openapi.json" >> "$GITHUB_OUTPUT"
       - id: graphql_schema
         if: matrix.type == 'graphql' && startsWith(matrix.base_url, 'https://api.github.com/')
         env:
