@@ -1,7 +1,7 @@
 fastmcp==4.0.10
 httpx2==2.13.1
 opentelemetry-distro==0.65b0
-opentelemetry-exporter-otlp==1.44.0
+opentelemetry-exporter-otlp==1.45.0
 opentelemetry-resourcedetector-docker==0.4.0
 opentelemetry-resourcedetector-kubernetes==0.3.0
 opentelemetry-sdk-extension-aws==2.1.0
