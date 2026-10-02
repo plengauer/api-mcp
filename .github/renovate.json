@@ -10,5 +10,6 @@
   "prConcurrentLimit": 0,
   "automerge": true,
   "ignoreTests": true,
+  "ignorePaths": [".github/workflows/*.lock.yml"],
   "lockFileMaintenance": { "enabled": true }
 }
