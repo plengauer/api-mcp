@@ -365,6 +365,7 @@ def _build_mcp_from_introspection(introspection, headers):
     schema = build_client_schema(introspection)
     mcp = GraphQLMCP(
         schema=schema,
+        graphql_http=False,
         register_tools=False,
         name=os.environ["API_MCP_SERVER_NAME"],
     )
