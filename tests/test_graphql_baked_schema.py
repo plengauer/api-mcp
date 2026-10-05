@@ -99,6 +99,12 @@ def test_build_from_introspection(server, introspection):
     assert client._array_fields_cache["Repository"]["name"] is False
 
 
+def test_http_app_does_not_enable_graphql_http_endpoint(server, introspection):
+    mcp = server._build_mcp_from_introspection(introspection, {})
+    assert mcp.graphql_http is False
+    assert server._http_app(mcp) is not None
+
+
 def test_bearer_token_extraction_outside_request_is_none(server):
     import graphql_mcp.server as gs
     assert gs._extract_bearer_token_from_context(None) is None
