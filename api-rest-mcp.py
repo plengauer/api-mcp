@@ -89,10 +89,15 @@ def annotate_read_or_write(route, component):
 # Used by the tools generated from the OpenAPI spec and by the manual,
 # method-named raw HTTP tools, so both go through the same base URL resolution
 # and DynamicAuth authorization.
+#
+# Redirects are deliberately NOT followed: the redirect target is usually a
+# different host (e.g. a signed storage URL for GitHub logs/artifacts), so the
+# redirect response is surfaced to the caller as-is, and the Authorization
+# header can never reach another host.
 raw_client = httpx2.AsyncClient(
     base_url = os.environ["API_MCP_BASE_URL"],
     auth = DynamicAuth(),
-    follow_redirects = True,
+    follow_redirects = False,
     timeout = 60 * 3,
 )
 
