@@ -1,3 +1,4 @@
+import base64
 import json
 import os
 from contextvars import ContextVar
@@ -89,10 +90,59 @@ def annotate_read_or_write(route, component):
 # Used by the tools generated from the OpenAPI spec and by the manual,
 # method-named raw HTTP tools, so both go through the same base URL resolution
 # and DynamicAuth authorization.
+#
+# Redirects are deliberately NOT followed: the redirect target is usually a
+# different host (e.g. a signed storage URL for GitHub logs/artifacts), so the
+# Location is surfaced to the caller instead. Binary responses are returned as
+# base64 text (see _normalize_response), capped at MAX_RESPONSE_BYTES.
+MAX_RESPONSE_BYTES = int(os.environ.get("API_MCP_MAX_RESPONSE_BYTES", str(10 * 1024 * 1024)))
+
+TEXT_CONTENT_TYPES = ("application/json", "application/xml", "application/javascript", "application/x-www-form-urlencoded", "application/yaml", "application/x-yaml", "application/graphql")
+
+def is_text_content_type(content_type):
+    media_type = content_type.split(";")[0].strip().lower()
+    if not media_type or media_type.startswith("text/"):
+        return True
+    return media_type in TEXT_CONTENT_TYPES or media_type.endswith(("+json", "+xml"))
+
+async def _normalize_response(response: httpx2.Response):
+    """Makes every response safe to hand to a text-only consumer: binary
+    bodies become base64 (no corrupted bytes), oversized bodies are cut off
+    with a clear message, and redirects expose their Location."""
+    data = bytearray()
+    truncated = False
+    async for chunk in response.aiter_bytes():
+        data.extend(chunk)
+        if len(data) > MAX_RESPONSE_BYTES:
+            del data[MAX_RESPONSE_BYTES:]
+            truncated = True
+            break
+    await response.aclose()
+    content_type = response.headers.get("content-type", "")
+    location = response.headers.get("location")
+    if 300 <= response.status_code < 400 and location and not data:
+        body = f"Redirect to: {location}"
+    elif is_text_content_type(content_type):
+        body = bytes(data).decode(response.encoding or "utf-8", errors="replace")
+        if truncated:
+            body += f"\n[truncated: response exceeds {MAX_RESPONSE_BYTES} bytes]"
+    else:
+        if truncated:
+            raise ValueError(f"Binary response ({content_type}) exceeds the maximum size of {MAX_RESPONSE_BYTES} bytes")
+        body = base64.b64encode(bytes(data)).decode("ascii")
+        response.headers["X-Original-Content-Type"] = content_type
+        response.headers["X-Content-Encoding"] = "base64"
+        response.headers["Content-Type"] = "text/plain"
+    response.headers.pop("content-encoding", None)
+    response.headers["Content-Length"] = str(len(body.encode()))
+    response._content = body.encode()
+    response.is_stream_consumed = True
+
 raw_client = httpx2.AsyncClient(
     base_url = os.environ["API_MCP_BASE_URL"],
     auth = DynamicAuth(),
-    follow_redirects = True,
+    follow_redirects = False,
+    event_hooks = {"response": [_normalize_response]},
     timeout = 60 * 3,
 )
 
