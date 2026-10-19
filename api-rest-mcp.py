@@ -86,6 +86,7 @@ def annotate_read_or_write(route, component):
     if not isinstance(component, OpenAPITool):
         return
     component.annotations = method_annotations(route.method.upper())
+    component._client = raw_client if component.output_schema is None else schema_client
 
 # Used by the tools generated from the OpenAPI spec and by the manual,
 # method-named raw HTTP tools, so both go through the same base URL resolution
@@ -138,11 +139,23 @@ async def _normalize_response(response: httpx2.Response):
     response._content = body.encode()
     response.is_stream_consumed = True
 
+# FastMCP validates results against the tool's output schema, so responses are
+# only rewritten for clients whose tools have no output schema: the raw tools
+# and generated tools without one (see annotate_read_or_write).
 raw_client = httpx2.AsyncClient(
     base_url = os.environ["API_MCP_BASE_URL"],
     auth = DynamicAuth(),
     follow_redirects = False,
     event_hooks = {"response": [_normalize_response]},
+    timeout = 60 * 3,
+)
+
+# Client for generated tools that have an output schema: responses are passed
+# through untouched so they still match the schema.
+schema_client = httpx2.AsyncClient(
+    base_url = os.environ["API_MCP_BASE_URL"],
+    auth = DynamicAuth(),
+    follow_redirects = False,
     timeout = 60 * 3,
 )
 
@@ -220,7 +233,7 @@ def register_raw_http_tools(mcp):
 if OPENAPI_SPEC_PATH and os.path.isfile(OPENAPI_SPEC_PATH):
     mcp = FastMCP.from_openapi(
         openapi_spec = load_openapi_spec(OPENAPI_SPEC_PATH),
-        client = raw_client,
+        client = schema_client,
         name = os.environ["API_MCP_SERVER_NAME"],
         route_maps = route_maps,
         mcp_component_fn = annotate_read_or_write,
