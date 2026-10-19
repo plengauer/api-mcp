@@ -14,36 +14,35 @@ _spec.loader.exec_module(rest)
 
 PAYLOAD = bytes(range(256)) * 50
 
-def _client(handler):
-    return httpx2.AsyncClient(
-        base_url="http://api.test",
-        transport=httpx2.MockTransport(handler),
-        follow_redirects=False,
-        event_hooks={"response": [rest._normalize_response]},
-    )
 
-def _handler(request):
-    if request.url.path == "/redirect":
-        return httpx2.Response(302, headers={"location": "https://storage.test/logs.zip"})
-    return httpx2.Response(200, content=PAYLOAD, headers={"content-type": "application/zip"})
+def _response(status, **kwargs):
+    return httpx2.Response(status, request=httpx2.Request("GET", "http://api.test/x"), **kwargs)
+
 
 def test_raw_client_does_not_follow_redirects():
     assert rest.raw_client.follow_redirects is False
 
-@pytest.mark.asyncio
-async def test_redirect_surfaces_location():
-    response = await _client(_handler).get("/redirect")
-    assert response.status_code == 302
-    assert "https://storage.test/logs.zip" in response.text
 
-@pytest.mark.asyncio
-async def test_binary_body_round_trips():
-    response = await _client(_handler).get("/logs")
-    assert base64.b64decode(response.text) == PAYLOAD
-    assert response.headers["x-original-content-type"] == "application/zip"
+def test_redirect_is_surfaced_untouched():
+    result = rest._response_result(_response(302, headers={"location": "https://storage.test/logs.zip"}))
+    assert result["status_code"] == 302
+    assert result["headers"]["location"] == "https://storage.test/logs.zip"
 
-@pytest.mark.asyncio
-async def test_oversized_binary_rejected(monkeypatch):
+
+def test_binary_body_round_trips():
+    result = rest._response_result(_response(200, content=PAYLOAD, headers={"content-type": "application/zip"}))
+    assert result["body_encoding"] == "base64"
+    assert base64.b64decode(result["body"]) == PAYLOAD
+    assert result["headers"]["content-type"] == "application/zip"
+
+
+def test_text_body_unchanged():
+    result = rest._response_result(_response(200, json={"a": 1}))
+    assert "body_encoding" not in result
+    assert result["body"] == '{"a":1}' or result["body"] == '{"a": 1}'
+
+
+def test_oversized_response_rejected(monkeypatch):
     monkeypatch.setattr(rest, "MAX_RESPONSE_BYTES", 10)
     with pytest.raises(ValueError):
-        await _client(_handler).get("/logs")
+        rest._response_result(_response(200, content=PAYLOAD, headers={"content-type": "application/zip"}))

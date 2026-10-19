@@ -86,7 +86,6 @@ def annotate_read_or_write(route, component):
     if not isinstance(component, OpenAPITool):
         return
     component.annotations = method_annotations(route.method.upper())
-    component._client = raw_client if component.output_schema is None else schema_client
 
 # Used by the tools generated from the OpenAPI spec and by the manual,
 # method-named raw HTTP tools, so both go through the same base URL resolution
@@ -94,8 +93,8 @@ def annotate_read_or_write(route, component):
 #
 # Redirects are deliberately NOT followed: the redirect target is usually a
 # different host (e.g. a signed storage URL for GitHub logs/artifacts), so the
-# Location is surfaced to the caller instead. Binary responses are returned as
-# base64 text (see _normalize_response), capped at MAX_RESPONSE_BYTES.
+# redirect response is surfaced to the caller instead. Responses are never
+# rewritten, so generated tools still validate against their output schema.
 MAX_RESPONSE_BYTES = int(os.environ.get("API_MCP_MAX_RESPONSE_BYTES", str(10 * 1024 * 1024)))
 
 TEXT_CONTENT_TYPES = ("application/json", "application/xml", "application/javascript", "application/x-www-form-urlencoded", "application/yaml", "application/x-yaml", "application/graphql")
@@ -106,53 +105,7 @@ def is_text_content_type(content_type):
         return True
     return media_type in TEXT_CONTENT_TYPES or media_type.endswith(("+json", "+xml"))
 
-async def _normalize_response(response: httpx2.Response):
-    """Makes every response safe to hand to a text-only consumer: binary
-    bodies become base64 (no corrupted bytes), oversized bodies are cut off
-    with a clear message, and redirects expose their Location."""
-    data = bytearray()
-    truncated = False
-    async for chunk in response.aiter_bytes():
-        data.extend(chunk)
-        if len(data) > MAX_RESPONSE_BYTES:
-            del data[MAX_RESPONSE_BYTES:]
-            truncated = True
-            break
-    await response.aclose()
-    content_type = response.headers.get("content-type", "")
-    location = response.headers.get("location")
-    if 300 <= response.status_code < 400 and location and not data:
-        body = f"Redirect to: {location}"
-    elif is_text_content_type(content_type):
-        body = bytes(data).decode(response.encoding or "utf-8", errors="replace")
-        if truncated:
-            body += f"\n[truncated: response exceeds {MAX_RESPONSE_BYTES} bytes]"
-    else:
-        if truncated:
-            raise ValueError(f"Binary response ({content_type}) exceeds the maximum size of {MAX_RESPONSE_BYTES} bytes")
-        body = base64.b64encode(bytes(data)).decode("ascii")
-        response.headers["X-Original-Content-Type"] = content_type
-        response.headers["X-Content-Encoding"] = "base64"
-        response.headers["Content-Type"] = "text/plain"
-    response.headers.pop("content-encoding", None)
-    response.headers["Content-Length"] = str(len(body.encode()))
-    response._content = body.encode()
-    response.is_stream_consumed = True
-
-# FastMCP validates results against the tool's output schema, so responses are
-# only rewritten for clients whose tools have no output schema: the raw tools
-# and generated tools without one (see annotate_read_or_write).
 raw_client = httpx2.AsyncClient(
-    base_url = os.environ["API_MCP_BASE_URL"],
-    auth = DynamicAuth(),
-    follow_redirects = False,
-    event_hooks = {"response": [_normalize_response]},
-    timeout = 60 * 3,
-)
-
-# Client for generated tools that have an output schema: responses are passed
-# through untouched so they still match the schema.
-schema_client = httpx2.AsyncClient(
     base_url = os.environ["API_MCP_BASE_URL"],
     auth = DynamicAuth(),
     follow_redirects = False,
@@ -178,11 +131,19 @@ def load_openapi_spec(path):
 # They reuse raw_client so the request still gets the right base URL joining
 # and Authorization header via DynamicAuth.
 def _response_result(response: httpx2.Response) -> dict:
-    return {
+    content = response.content
+    if len(content) > MAX_RESPONSE_BYTES:
+        raise ValueError(f"Response ({response.headers.get('content-type', 'unknown type')}) exceeds the maximum size of {MAX_RESPONSE_BYTES} bytes")
+    result = {
         "status_code": response.status_code,
         "headers": dict(response.headers),
-        "body": response.text,
     }
+    if is_text_content_type(response.headers.get("content-type", "")):
+        result["body"] = response.text
+    else:
+        result["body"] = base64.b64encode(content).decode("ascii")
+        result["body_encoding"] = "base64"
+    return result
 
 def register_raw_http_tools(mcp):
     @mcp.tool(
@@ -233,7 +194,7 @@ def register_raw_http_tools(mcp):
 if OPENAPI_SPEC_PATH and os.path.isfile(OPENAPI_SPEC_PATH):
     mcp = FastMCP.from_openapi(
         openapi_spec = load_openapi_spec(OPENAPI_SPEC_PATH),
-        client = schema_client,
+        client = raw_client,
         name = os.environ["API_MCP_SERVER_NAME"],
         route_maps = route_maps,
         mcp_component_fn = annotate_read_or_write,
