@@ -1,4 +1,3 @@
-import base64
 import json
 import os
 from contextvars import ContextVar
@@ -93,18 +92,8 @@ def annotate_read_or_write(route, component):
 #
 # Redirects are deliberately NOT followed: the redirect target is usually a
 # different host (e.g. a signed storage URL for GitHub logs/artifacts), so the
-# redirect response is surfaced to the caller instead. Responses are never
-# rewritten, so generated tools still validate against their output schema.
-MAX_RESPONSE_BYTES = int(os.environ.get("API_MCP_MAX_RESPONSE_BYTES", str(10 * 1024 * 1024)))
-
-TEXT_CONTENT_TYPES = ("application/json", "application/xml", "application/javascript", "application/x-www-form-urlencoded", "application/yaml", "application/x-yaml", "application/graphql")
-
-def is_text_content_type(content_type):
-    media_type = content_type.split(";")[0].strip().lower()
-    if not media_type or media_type.startswith("text/"):
-        return True
-    return media_type in TEXT_CONTENT_TYPES or media_type.endswith(("+json", "+xml"))
-
+# redirect response is surfaced to the caller as-is, and the Authorization
+# header can never reach another host.
 raw_client = httpx2.AsyncClient(
     base_url = os.environ["API_MCP_BASE_URL"],
     auth = DynamicAuth(),
@@ -131,19 +120,11 @@ def load_openapi_spec(path):
 # They reuse raw_client so the request still gets the right base URL joining
 # and Authorization header via DynamicAuth.
 def _response_result(response: httpx2.Response) -> dict:
-    content = response.content
-    if len(content) > MAX_RESPONSE_BYTES:
-        raise ValueError(f"Response ({response.headers.get('content-type', 'unknown type')}) exceeds the maximum size of {MAX_RESPONSE_BYTES} bytes")
-    result = {
+    return {
         "status_code": response.status_code,
         "headers": dict(response.headers),
+        "body": response.text,
     }
-    if is_text_content_type(response.headers.get("content-type", "")):
-        result["body"] = response.text
-    else:
-        result["body"] = base64.b64encode(content).decode("ascii")
-        result["body_encoding"] = "base64"
-    return result
 
 def register_raw_http_tools(mcp):
     @mcp.tool(
